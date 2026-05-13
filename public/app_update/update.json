@@ -1,0 +1,7 @@
+{
+    "versionCode": 100,
+    "versionName": "1.0.0",
+    "url": "https://api-gx-om.hrlni.cn/app_update/app-release.apk",
+    "force": true,
+    "description": "初始版本 release"
+}
