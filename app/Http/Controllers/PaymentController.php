@@ -1022,10 +1022,23 @@ class PaymentController extends ApiController
             'store_id' => 'nullable|integer|exists:stores,id'
         ]);
 
-        // 权限检查
-        if (!$this->isAdmin() && isset($validated['store_id'])) {
-            if (!$this->isManagerOfStore($validated['store_id'])) {
-                return $this->errorResponse('需要系统管理员权限或对应店长权限', 403);
+        // 获取用户可访问的门店ID
+        $allowedStoreIds = $this->getUserStoreIds();
+
+        if (empty($allowedStoreIds)) {
+            return $this->errorResponse('您没有关联任何门店', 403);
+        }
+
+        $requestedStoreId = $validated['store_id'] ?? null;
+
+        // 验证所有还款都属于用户可管理的门店
+        $payments = Payment::whereIn('id', $validated['payment_ids'])->get();
+        foreach ($payments as $payment) {
+            if (!in_array($payment->store_id, $allowedStoreIds)) {
+                return $this->errorResponse("还款 #{$payment->id} 不属于你可管理的门店", 403);
+            }
+            if ($requestedStoreId && $payment->store_id != $requestedStoreId) {
+                return $this->errorResponse("还款 #{$payment->id} 不属于指定门店", 422);
             }
         }
 

@@ -231,11 +231,14 @@ class PaymentDiscountService
     /**
      * 获取优惠减免统计
      */
-    public function getDiscountStatistics(int $storeId, array $dateRange = null): array
+    public function getDiscountStatistics(?int $storeId = null, array $dateRange = null): array
     {
         $query = PaymentDiscount::query()
-            ->join('payments', 'payment_discounts.payment_id', '=', 'payments.id')
-            ->where('payments.store_id', $storeId);
+            ->join('payments', 'payment_discounts.payment_id', '=', 'payments.id');
+
+        if ($storeId !== null) {
+            $query->where('payments.store_id', $storeId);
+        }
 
         if ($dateRange) {
             $query->whereBetween('payment_discounts.created_at', $dateRange);
