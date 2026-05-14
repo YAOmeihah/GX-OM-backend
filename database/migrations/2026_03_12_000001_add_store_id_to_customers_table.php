@@ -28,93 +28,98 @@ return new class extends Migration
         });
 
         // ── 2. 单店客户：直接赋值 ──────────────────────────────────────────
-        DB::statement("
-            UPDATE customers c
-            JOIN (
-                SELECT customer_id, MIN(store_id) AS store_id
-                FROM invoices
-                GROUP BY customer_id
-                HAVING COUNT(DISTINCT store_id) = 1
-            ) single ON c.id = single.customer_id
-            SET c.store_id = single.store_id
-            WHERE c.store_id IS NULL
-        ");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("
+                UPDATE customers c
+                JOIN (
+                    SELECT customer_id, MIN(store_id) AS store_id
+                    FROM invoices
+                    GROUP BY customer_id
+                    HAVING COUNT(DISTINCT store_id) = 1
+                ) single ON c.id = single.customer_id
+                SET c.store_id = single.store_id
+                WHERE c.store_id IS NULL
+            ");
 
-        // 同样处理只有 payments 没有 invoices 的客户
-        DB::statement("
-            UPDATE customers c
-            JOIN (
-                SELECT customer_id, MIN(store_id) AS store_id
-                FROM payments
-                GROUP BY customer_id
-                HAVING COUNT(DISTINCT store_id) = 1
-            ) single ON c.id = single.customer_id
-            SET c.store_id = single.store_id
-            WHERE c.store_id IS NULL
-        ");
+            // 同样处理只有 payments 没有 invoices 的客户
+            DB::statement("
+                UPDATE customers c
+                JOIN (
+                    SELECT customer_id, MIN(store_id) AS store_id
+                    FROM payments
+                    GROUP BY customer_id
+                    HAVING COUNT(DISTINCT store_id) = 1
+                ) single ON c.id = single.customer_id
+                SET c.store_id = single.store_id
+                WHERE c.store_id IS NULL
+            ");
+        }
 
         // ── 3. 跨店客户：克隆 ─────────────────────────────────────────────
-        $crossStoreCustomers = DB::select("
-            SELECT c.id, c.name, c.phone, c.email, c.address, c.id_card, c.remarks,
-                   c.created_at, c.updated_at,
-                   GROUP_CONCAT(DISTINCT i.store_id ORDER BY i.store_id) AS store_ids
-            FROM customers c
-            JOIN invoices i ON i.customer_id = c.id
-            WHERE c.store_id IS NULL
-            GROUP BY c.id, c.name, c.phone, c.email, c.address, c.id_card, c.remarks, c.created_at, c.updated_at
-            HAVING COUNT(DISTINCT i.store_id) > 1
-        ");
+        // Note: GROUP_CONCAT with ORDER BY is MySQL-specific; skip entire block under SQLite
+        if (DB::getDriverName() !== 'sqlite') {
+            $crossStoreCustomers = DB::select("
+                SELECT c.id, c.name, c.phone, c.email, c.address, c.id_card, c.remarks,
+                       c.created_at, c.updated_at,
+                       GROUP_CONCAT(DISTINCT i.store_id ORDER BY i.store_id) AS store_ids
+                FROM customers c
+                JOIN invoices i ON i.customer_id = c.id
+                WHERE c.store_id IS NULL
+                GROUP BY c.id, c.name, c.phone, c.email, c.address, c.id_card, c.remarks, c.created_at, c.updated_at
+                HAVING COUNT(DISTINCT i.store_id) > 1
+            ");
 
-        foreach ($crossStoreCustomers as $customer) {
-            $storeIds = explode(',', $customer->store_ids);
-            $isFirst = true;
+            foreach ($crossStoreCustomers as $customer) {
+                $storeIds = explode(',', $customer->store_ids);
+                $isFirst = true;
 
-            foreach ($storeIds as $storeId) {
-                $storeId = (int) $storeId;
+                foreach ($storeIds as $storeId) {
+                    $storeId = (int) $storeId;
 
-                if ($isFirst) {
-                    // 第一个门店：直接更新原记录
-                    DB::table('customers')
-                        ->where('id', $customer->id)
-                        ->update(['store_id' => $storeId]);
-                    $isFirst = false;
-                } else {
-                    // 其余门店：克隆新记录
-                    $newId = DB::table('customers')->insertGetId([
-                        'store_id'   => $storeId,
-                        'name'       => $customer->name,
-                        'phone'      => $customer->phone,
-                        'email'      => $customer->email,
-                        'address'    => $customer->address,
-                        'id_card'    => $customer->id_card,
-                        'remarks'    => $customer->remarks,
-                        'created_at' => $customer->created_at,
-                        'updated_at' => $customer->updated_at,
-                    ]);
+                    if ($isFirst) {
+                        // 第一个门店：直接更新原记录
+                        DB::table('customers')
+                            ->where('id', $customer->id)
+                            ->update(['store_id' => $storeId]);
+                        $isFirst = false;
+                    } else {
+                        // 其余门店：克隆新记录
+                        $newId = DB::table('customers')->insertGetId([
+                            'store_id'   => $storeId,
+                            'name'       => $customer->name,
+                            'phone'      => $customer->phone,
+                            'email'      => $customer->email,
+                            'address'    => $customer->address,
+                            'id_card'    => $customer->id_card,
+                            'remarks'    => $customer->remarks,
+                            'created_at' => $customer->created_at,
+                            'updated_at' => $customer->updated_at,
+                        ]);
 
-                    // 更新该门店下的 invoices 引用
-                    DB::table('invoices')
-                        ->where('customer_id', $customer->id)
-                        ->where('store_id', $storeId)
-                        ->update(['customer_id' => $newId]);
+                        // 更新该门店下的 invoices 引用
+                        DB::table('invoices')
+                            ->where('customer_id', $customer->id)
+                            ->where('store_id', $storeId)
+                            ->update(['customer_id' => $newId]);
 
-                    // 更新该门店下的 payments 引用
-                    DB::table('payments')
-                        ->where('customer_id', $customer->id)
-                        ->where('store_id', $storeId)
-                        ->update(['customer_id' => $newId]);
+                        // 更新该门店下的 payments 引用
+                        DB::table('payments')
+                            ->where('customer_id', $customer->id)
+                            ->where('store_id', $storeId)
+                            ->update(['customer_id' => $newId]);
 
-                    // 更新 customer_store_stats 引用
-                    DB::table('customer_store_stats')
-                        ->where('customer_id', $customer->id)
-                        ->where('store_id', $storeId)
-                        ->update(['customer_id' => $newId]);
+                        // 更新 customer_store_stats 引用
+                        DB::table('customer_store_stats')
+                            ->where('customer_id', $customer->id)
+                            ->where('store_id', $storeId)
+                            ->update(['customer_id' => $newId]);
 
-                    // 更新 invoice_share_tokens 引用
-                    DB::table('invoice_share_tokens')
-                        ->where('customer_id', $customer->id)
-                        ->where('store_id', $storeId)
-                        ->update(['customer_id' => $newId]);
+                        // 更新 invoice_share_tokens 引用
+                        DB::table('invoice_share_tokens')
+                            ->where('customer_id', $customer->id)
+                            ->where('store_id', $storeId)
+                            ->update(['customer_id' => $newId]);
+                    }
                 }
             }
         }

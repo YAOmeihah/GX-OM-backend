@@ -12,9 +12,20 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('audit_logs', function (Blueprint $table) {
-            // 先删除外键约束
-            $table->dropForeign('audit_logs_store_id_foreign');
+            // 先删除外键约束（use column array instead of named foreign for SQLite compat）
+            $table->dropForeign(['store_id']);
+        });
 
+        // SQLite 需要在删列前先删索引
+        try {
+            Schema::table('audit_logs', function (Blueprint $table) {
+                $table->dropIndex('audit_logs_store_id_index');
+            });
+        } catch (\Exception $e) {
+            // 索引可能不存在
+        }
+
+        Schema::table('audit_logs', function (Blueprint $table) {
             // 再删除旧架构的门店字段
             $table->dropColumn(['store_id', 'store_name']);
         });

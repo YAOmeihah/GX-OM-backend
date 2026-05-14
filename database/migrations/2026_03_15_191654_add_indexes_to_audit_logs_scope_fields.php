@@ -12,23 +12,25 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // 检查索引是否已存在
-        $indexes = DB::select("SHOW INDEX FROM audit_logs WHERE Key_name IN ('idx_scope_business_store', 'idx_actor_store')");
-        $existingIndexes = collect($indexes)->pluck('Key_name')->unique()->toArray();
-
-        Schema::table('audit_logs', function (Blueprint $table) use ($existingIndexes) {
-            // 复合索引：用于门店业务日志查询（最常用）
-            // WHERE scope_type='store' AND business_store_id=?
-            if (!in_array('idx_scope_business_store', $existingIndexes)) {
+        try {
+            $table = Schema::table('audit_logs', function (Blueprint $table) {
+                // 复合索引：用于门店业务日志查询（最常用）
+                // WHERE scope_type='store' AND business_store_id=?
                 $table->index(['scope_type', 'business_store_id'], 'idx_scope_business_store');
-            }
+            });
+        } catch (\Exception $e) {
+            // 索引可能已存在（常见于 SQLite 等不支持的驱动）
+        }
 
-            // 单列索引：用于按操作者门店查询
-            // WHERE actor_store_id=?
-            if (!in_array('idx_actor_store', $existingIndexes)) {
+        try {
+            Schema::table('audit_logs', function (Blueprint $table) {
+                // 单列索引：用于按操作者门店查询
+                // WHERE actor_store_id=?
                 $table->index('actor_store_id', 'idx_actor_store');
-            }
-        });
+            });
+        } catch (\Exception $e) {
+            // 索引可能已存在
+        }
     }
 
     /**
