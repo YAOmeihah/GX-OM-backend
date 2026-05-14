@@ -277,7 +277,7 @@ class AuthController extends ApiController
                         'id' => $store->id,
                         'name' => $store->name,
                         'code' => $store->code,
-                        'is_manager' => $store->pivot->is_manager,
+                        'is_manager' => $user->isManagerOfStore($store->id),
                     ];
                 }),
             ],
@@ -393,7 +393,7 @@ class AuthController extends ApiController
                 'id' => $store->id,
                 'name' => $store->name,
                 'code' => $store->code,
-                'is_manager' => $store->pivot->is_manager ?? false,
+                'is_manager' => $user->isManagerOfStore($store->id),
             ];
         })->toArray();
     }

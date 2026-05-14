@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use App\Models\Role;
 use App\Models\Store;
+use Illuminate\Support\Facades\DB;
 
 /**
  * @group 用户管理
@@ -330,39 +331,40 @@ class UserController extends ApiController
             'store_ids.*' => 'exists:stores,id',
         ]);
 
-        // 更新基本信息
-        $user->name = $validated['name'];
-        $user->username = $validated['username'];
-        // 如果未提供邮箱，自动生成一个 (保持与store方法一致的逻辑)
-        $user->email = !empty($validated['email']) ? $validated['email'] : ($validated['username'] . '@system.local');
-
-        // 如果提供了密码，则更新
-        if (!empty($validated['password'])) {
-            $user->password = \Illuminate\Support\Facades\Hash::make($validated['password']);
-            // 强制下线：修改密码后清除该用户所有令牌
-            $user->tokens()->delete();
-        }
-
-        $user->save();
-
-        // 仅在明确提供 role_ids 时更新角色
-        if (isset($validated['role_ids'])) {
-            // 防止删除自己的管理员角色
-            if ($user->id === $request->user()->id) {
-                $adminRole = Role::where('slug', 'admin')->first();
-                if ($adminRole && !in_array($adminRole->id, $validated['role_ids'])) {
-                    return $this->errorResponse('不能删除自己的管理员角色', 400);
-                }
+        // 防止删除自己的管理员角色（在写入之前检查）
+        if (isset($validated['role_ids']) && $user->id === $request->user()->id) {
+            $adminRole = Role::where('slug', 'admin')->first();
+            if ($adminRole && !in_array($adminRole->id, $validated['role_ids'])) {
+                return $this->errorResponse('不能删除自己的管理员角色', 400);
             }
-            $user->roles()->sync($validated['role_ids']);
         }
 
-        // 仅在明确提供 store_ids 时更新门店 (如果前端传了)
-        // 注意：前端编辑逻辑中 store_ids 不是必须的，如果没改可能不传?
-        // 对应 store 方法逻辑，如果传了就 sync
-        if (array_key_exists('store_ids', $validated)) { // 使用 array_key_exists 检查是否包含该键
-            $user->stores()->sync($validated['store_ids'] ?? []);
-        }
+        DB::transaction(function () use ($user, $validated) {
+            // 更新基本信息
+            $user->name = $validated['name'];
+            $user->username = $validated['username'];
+            // 如果未提供邮箱，自动生成一个 (保持与store方法一致的逻辑)
+            $user->email = !empty($validated['email']) ? $validated['email'] : ($validated['username'] . '@system.local');
+
+            // 如果提供了密码，则更新
+            if (!empty($validated['password'])) {
+                $user->password = \Illuminate\Support\Facades\Hash::make($validated['password']);
+                // 强制下线：修改密码后清除该用户所有令牌
+                $user->tokens()->delete();
+            }
+
+            $user->save();
+
+            // 仅在明确提供 role_ids 时更新角色
+            if (isset($validated['role_ids'])) {
+                $user->roles()->sync($validated['role_ids']);
+            }
+
+            // 仅在明确提供 store_ids 时更新门店
+            if (array_key_exists('store_ids', $validated)) {
+                $user->stores()->sync($validated['store_ids'] ?? []);
+            }
+        });
 
         return $this->successResponse($user->load(['roles', 'stores']), '用户更新成功');
     }
