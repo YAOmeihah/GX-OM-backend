@@ -75,7 +75,7 @@ class MaintenanceScanService
                 ->get();
 
             foreach ($invoices as $invoice) {
-                $items->push([
+                $items->push($this->addSelectionKey([
                     'id' => $invoice->id,
                     'type' => 'invoice',
                     'identifier' => $invoice->invoice_number,
@@ -85,7 +85,7 @@ class MaintenanceScanService
                     'created_at' => $invoice->created_at->toDateString(),
                     'related_items' => $invoice->related_items_count,
                     'can_delete' => true,
-                ]);
+                ]));
             }
         }
 
@@ -122,7 +122,7 @@ class MaintenanceScanService
                 ->get();
 
             foreach ($payments as $payment) {
-                $items->push([
+                $items->push($this->addSelectionKey([
                     'id' => $payment->id,
                     'type' => 'payment',
                     'identifier' => $payment->payment_number ?? "P-{$payment->id}",
@@ -132,7 +132,7 @@ class MaintenanceScanService
                     'created_at' => $payment->created_at->toDateString(),
                     'related_items' => $payment->related_items_count,
                     'can_delete' => true,
-                ]);
+                ]));
             }
         }
 
@@ -184,7 +184,7 @@ class MaintenanceScanService
             $summary['invoice_items'] = $orphanItems->count();
 
             foreach ($orphanItems as $item) {
-                $items->push([
+                $items->push($this->addSelectionKey([
                     'id' => $item->id,
                     'type' => 'invoice_item',
                     'identifier' => $item->item_name,
@@ -193,7 +193,7 @@ class MaintenanceScanService
                     'amount' => $item->subtotal,
                     'created_at' => $item->created_at?->toDateString(),
                     'can_delete' => true,
-                ]);
+                ]));
             }
         }
 
@@ -210,7 +210,7 @@ class MaintenanceScanService
             $summary['payment_allocations'] = $orphanAllocations->count();
 
             foreach ($orphanAllocations as $alloc) {
-                $items->push([
+                $items->push($this->addSelectionKey([
                     'id' => $alloc->id,
                     'type' => 'payment_allocation',
                     'identifier' => "分配 #{$alloc->id}",
@@ -220,7 +220,7 @@ class MaintenanceScanService
                     'amount' => $alloc->amount,
                     'created_at' => $alloc->created_at?->toDateString(),
                     'can_delete' => true,
-                ]);
+                ]));
             }
         }
 
@@ -243,7 +243,7 @@ class MaintenanceScanService
             $summary['attachments'] = $orphanAttachments->count();
 
             foreach ($orphanAttachments as $attach) {
-                $items->push([
+                $items->push($this->addSelectionKey([
                     'id' => $attach->id,
                     'type' => 'attachment',
                     'identifier' => $attach->original_filename ?? $attach->filename,
@@ -253,7 +253,7 @@ class MaintenanceScanService
                     'file_size' => $attach->file_size,
                     'created_at' => $attach->created_at?->toDateString(),
                     'can_delete' => true,
-                ]);
+                ]));
             }
         }
 
@@ -305,7 +305,7 @@ class MaintenanceScanService
             $summary['invoice_amount_mismatch'] = $mismatchInvoices->count();
 
             foreach ($mismatchInvoices as $invoice) {
-                $items->push([
+                $items->push($this->addSelectionKey([
                     'id' => $invoice->id,
                     'type' => 'invoice_amount_mismatch',
                     'identifier' => $invoice->invoice_number,
@@ -313,7 +313,7 @@ class MaintenanceScanService
                     'current_value' => $invoice->amount,
                     'expected_value' => $invoice->calculated_amount,
                     'can_fix' => true,
-                ]);
+                ]));
             }
         }
 
@@ -333,7 +333,7 @@ class MaintenanceScanService
 
             foreach ($statusIssues as $invoice) {
                 $expectedStatus = $this->calculateExpectedStatus($invoice);
-                $items->push([
+                $items->push($this->addSelectionKey([
                     'id' => $invoice->id,
                     'type' => 'invoice_status_mismatch',
                     'identifier' => $invoice->invoice_number,
@@ -341,7 +341,7 @@ class MaintenanceScanService
                     'current_value' => $invoice->status,
                     'expected_value' => $expectedStatus,
                     'can_fix' => true,
-                ]);
+                ]));
             }
         }
 
@@ -358,7 +358,7 @@ class MaintenanceScanService
             $summary['payment_allocation_mismatch'] = $paymentMismatches->count();
 
             foreach ($paymentMismatches as $payment) {
-                $items->push([
+                $items->push($this->addSelectionKey([
                     'id' => $payment->id,
                     'type' => 'payment_allocation_mismatch',
                     'entity_type' => 'payment',
@@ -367,7 +367,7 @@ class MaintenanceScanService
                     'current_value' => $payment->allocated_amount,
                     'expected_value' => $payment->actual_allocated,
                     'can_fix' => true,
-                ]);
+                ]));
             }
 
             // 检查账单的 paid_amount 与实际分配不一致
@@ -381,7 +381,7 @@ class MaintenanceScanService
             $summary['invoice_paid_mismatch'] = $invoiceMismatches->count();
 
             foreach ($invoiceMismatches as $invoice) {
-                $items->push([
+                $items->push($this->addSelectionKey([
                     'id' => $invoice->id,
                     'type' => 'payment_allocation_mismatch',
                     'entity_type' => 'invoice',
@@ -390,7 +390,7 @@ class MaintenanceScanService
                     'current_value' => $invoice->paid_amount,
                     'expected_value' => $invoice->actual_paid,
                     'can_fix' => true,
-                ]);
+                ]));
             }
         }
 
@@ -472,7 +472,7 @@ class MaintenanceScanService
                 ->get();
 
             foreach ($normalLogs as $log) {
-                $items->push([
+                $items->push($this->addSelectionKey([
                     'id' => $log->id,
                     'type' => 'audit_log',
                     'log_type' => 'normal',
@@ -484,7 +484,7 @@ class MaintenanceScanService
                     'description' => $log->description,
                     'created_at' => $log->created_at->toDateString(),
                     'can_delete' => true,
-                ]);
+                ]));
             }
 
             $remaining -= $normalLogs->count();
@@ -502,7 +502,7 @@ class MaintenanceScanService
                 ->get();
 
             foreach ($criticalLogs as $log) {
-                $items->push([
+                $items->push($this->addSelectionKey([
                     'id' => $log->id,
                     'type' => 'audit_log',
                     'log_type' => 'critical',
@@ -514,7 +514,7 @@ class MaintenanceScanService
                     'description' => $log->description,
                     'created_at' => $log->created_at->toDateString(),
                     'can_delete' => true,
-                ]);
+                ]));
             }
         }
 
@@ -526,7 +526,7 @@ class MaintenanceScanService
             'critical_cutoff_date' => $criticalCutoffDate->toDateString(),
             'normal_count' => $normalCount,
             'critical_count' => $criticalCount,
-            // 不再缓存全部 items，只缓存条件用于删除时重新查询
+            'items' => $items->toArray(),
         ], now()->addHours(1));
 
         return [
@@ -546,7 +546,7 @@ class MaintenanceScanService
     /**
      * 执行清理操作
      */
-    public function executeCleanup(string $scanId, array $selectedIds = [], bool $exportBeforeDelete = false): array
+    public function executeCleanup(string $scanId, array $selectedKeys = [], bool $exportBeforeDelete = false, array $selectedIds = []): array
     {
         $scanData = cache()->get("maintenance_scan:{$scanId}");
 
@@ -566,15 +566,19 @@ class MaintenanceScanService
 
         // P1优化：审计日志使用批量删除
         if ($scanData['type'] === 'audit_cleanup') {
-            return $this->executeAuditLogCleanup($scanData, $selectedIds, $exportBeforeDelete, $deleted);
+            return $this->executeAuditLogCleanup($scanData, $selectedKeys, $selectedIds, $exportBeforeDelete, $deleted);
         }
 
         // 其他类型使用原有逻辑
         $allItems = collect($scanData['items'] ?? []);
 
         // 如果指定了选定项，则只处理选定的
-        if (! empty($selectedIds)) {
-            $allItems = $allItems->filter(fn ($item) => in_array($item['id'], $selectedIds));
+        if (! empty($selectedKeys)) {
+            $selectedLookup = array_flip($selectedKeys);
+            $allItems = $allItems->filter(fn ($item) => isset($selectedLookup[$item['selection_key'] ?? "{$item['type']}:{$item['id']}"]));
+        } elseif (! empty($selectedIds)) {
+            $ids = collect($selectedIds);
+            $allItems = $allItems->filter(fn ($item) => $ids->containsStrict((int) $item['id']));
         }
 
         $exportFile = null;
@@ -603,7 +607,7 @@ class MaintenanceScanService
     /**
      * P1优化：批量删除审计日志
      */
-    protected function executeAuditLogCleanup(array $scanData, array $selectedIds, bool $exportBeforeDelete, array &$deleted): array
+    protected function executeAuditLogCleanup(array $scanData, array $selectedKeys, array $selectedIds, bool $exportBeforeDelete, array &$deleted): array
     {
         $options = $scanData['options'];
         $normalDays = $options['normal_days'] ?? 90;
@@ -613,10 +617,20 @@ class MaintenanceScanService
         $criticalCutoffDate = Carbon::now()->subDays($criticalDays);
 
         $exportFile = null;
+        $hasSelection = ! empty($selectedKeys) || ! empty($selectedIds);
 
-        DB::transaction(function () use ($normalCutoffDate, $criticalCutoffDate, $selectedIds, $exportBeforeDelete, &$deleted, &$exportFile) {
+        if (! empty($selectedKeys)) {
+            $selectedLookup = array_flip($selectedKeys);
+            $selectedIds = collect($scanData['items'] ?? [])
+                ->filter(fn ($item) => isset($selectedLookup[$item['selection_key'] ?? "{$item['type']}:{$item['id']}"]))
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+        }
+
+        DB::transaction(function () use ($normalCutoffDate, $criticalCutoffDate, $selectedIds, $hasSelection, $exportBeforeDelete, &$deleted, &$exportFile) {
             // 如果选择了特定ID，只删除选中的
-            if (! empty($selectedIds)) {
+            if ($hasSelection) {
                 if ($exportBeforeDelete) {
                     $logsToExport = AuditLog::whereIn('id', $selectedIds)->get();
                     $exportFile = $this->exportData('audit_cleanup', collect($logsToExport->toArray()));
@@ -913,38 +927,37 @@ class MaintenanceScanService
         $scanId = Str::uuid()->toString();
 
         // 查询过期的Token（expires_at 早于截止日期）
-        $query = InvoiceShareToken::where('expires_at', '<', $cutoffDate);
+        $baseQuery = InvoiceShareToken::where('expires_at', '<', $cutoffDate);
 
-        $totalCount = $query->count();
+        $totalCount = (clone $baseQuery)->count();
 
-        // 获取分页数据
-        $tokens = $query
+        $allItems = (clone $baseQuery)
             ->with(['customer:id,name', 'store:id,name', 'createdBy:id,name'])
             ->select(['id', 'token', 'customer_id', 'store_id', 'created_by', 'expires_at', 'created_at'])
             ->orderBy('expires_at', 'asc')
-            ->forPage($page, $perPage)
-            ->get();
+            ->get()
+            ->map(function ($token) {
+                return $this->addSelectionKey([
+                    'id' => $token->id,
+                    'type' => 'share_token',
+                    'identifier' => substr($token->token, 0, 8).'...',
+                    'customer_name' => $token->customer?->name ?? '未知',
+                    'store_name' => $token->store?->name ?? '未知',
+                    'created_by' => $token->createdBy?->name ?? '系统',
+                    'expires_at' => $token->expires_at->format('Y-m-d H:i'),
+                    'created_at' => $token->created_at->format('Y-m-d'),
+                    'can_delete' => true,
+                ]);
+            });
 
-        $items = $tokens->map(function ($token) {
-            return [
-                'id' => $token->id,
-                'type' => 'share_token',
-                'identifier' => substr($token->token, 0, 8).'...',
-                'customer_name' => $token->customer?->name ?? '未知',
-                'store_name' => $token->store?->name ?? '未知',
-                'created_by' => $token->createdBy?->name ?? '系统',
-                'expires_at' => $token->expires_at->format('Y-m-d H:i'),
-                'created_at' => $token->created_at->format('Y-m-d'),
-                'can_delete' => true,
-            ];
-        })->toArray();
+        $items = $allItems->forPage($page, $perPage)->values()->toArray();
 
         // 缓存扫描结果
         cache()->put("maintenance_scan:{$scanId}", [
             'type' => 'token_cleanup',
             'options' => $options,
             'cutoff_date' => $cutoffDate->toDateString(),
-            'items' => $items,
+            'items' => $allItems->toArray(),
         ], now()->addHours(1));
 
         return [
@@ -960,5 +973,12 @@ class MaintenanceScanService
             'page' => $page,
             'per_page' => $perPage,
         ];
+    }
+
+    private function addSelectionKey(array $item): array
+    {
+        $item['selection_key'] = "{$item['type']}:{$item['id']}";
+
+        return $item;
     }
 }

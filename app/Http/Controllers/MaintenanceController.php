@@ -75,16 +75,19 @@ class MaintenanceController extends Controller
     {
         $validated = $request->validate([
             'scan_id' => 'required|uuid',
-            'selected_ids' => 'sometimes|array',
-            'selected_ids.*' => 'integer',
+            'selected_keys' => ['sometimes', 'array'],
+            'selected_keys.*' => ['string', 'regex:/^[a-z_]+:\d+$/'],
+            'selected_ids' => ['sometimes', 'array'],
+            'selected_ids.*' => ['integer'],
             'export_before_delete' => 'sometimes|boolean',
         ]);
 
         try {
             $result = $this->scanService->executeCleanup(
                 $validated['scan_id'],
-                $validated['selected_ids'] ?? [],
-                $validated['export_before_delete'] ?? false
+                $validated['selected_keys'] ?? [],
+                $validated['export_before_delete'] ?? false,
+                $validated['selected_ids'] ?? []
             );
 
             // 记录审计日志（使用统一服务）
@@ -94,7 +97,7 @@ class MaintenanceController extends Controller
                 null,
                 [
                     'scan_id' => $validated['scan_id'],
-                    'selected_count' => count($validated['selected_ids'] ?? []),
+                    'selected_count' => count($validated['selected_keys'] ?? $validated['selected_ids'] ?? []),
                     'exported' => $validated['export_before_delete'] ?? false,
                     'deleted' => $result['deleted'],
                 ],
@@ -182,7 +185,7 @@ class MaintenanceController extends Controller
             'success' => true,
             'data' => [
                 'filename' => $filename,
-                'path' => $filepath,
+                'download_url' => url("/api/maintenance/export/{$filename}"),
                 'size' => filesize($filepath),
             ],
         ]);
@@ -195,15 +198,21 @@ class MaintenanceController extends Controller
      */
     public function downloadExport(string $filename)
     {
-        $filepath = storage_path("app/maintenance_exports/{$filename}");
-
-        if (! file_exists($filepath)) {
+        $filename = basename($filename);
+        if (! preg_match('/^export_[a-z_]+_\d{8}_\d{6}\.json$/', $filename)) {
             abort(404, '文件不存在');
         }
 
-        return response()->download($filepath, $filename, [
-            'Content-Type' => 'application/json',
-        ]);
+        $exportDir = storage_path('app/maintenance_exports');
+        $filepath = $exportDir.DIRECTORY_SEPARATOR.$filename;
+        $realExportDir = realpath($exportDir);
+        $realFile = realpath($filepath);
+
+        if (! $realExportDir || ! $realFile || ! str_starts_with($realFile, $realExportDir.DIRECTORY_SEPARATOR)) {
+            abort(404, '文件不存在');
+        }
+
+        return response()->download($realFile, $filename, ['Content-Type' => 'application/json']);
     }
 
     /**
