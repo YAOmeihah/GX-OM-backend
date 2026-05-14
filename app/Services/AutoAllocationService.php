@@ -73,11 +73,17 @@ class AutoAllocationService
      */
     public function detectExcessPayment(Payment $payment): array
     {
-        $customer = $payment->customer;
-        $totalDebt = $customer->total_debt;
+        $totalDebt = Invoice::with('discounts')
+            ->where('customer_id', $payment->customer_id)
+            ->where('store_id', $payment->store_id)
+            ->whereRaw('amount > paid_amount')
+            ->get()
+            ->sum('actual_remaining_amount');
 
-        $isExcess = $payment->amount > $totalDebt;
-        $excessAmount = $isExcess ? $payment->amount - $totalDebt : 0;
+        $isExcess = \App\Helpers\MoneyHelper::isGreaterThan($payment->amount, $totalDebt);
+        $excessAmount = $isExcess
+            ? \App\Helpers\MoneyHelper::toFloat(\App\Helpers\MoneyHelper::subtract($payment->amount, $totalDebt))
+            : 0;
 
         return [
             'is_excess' => $isExcess,

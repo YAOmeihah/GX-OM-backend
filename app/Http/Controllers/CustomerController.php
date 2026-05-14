@@ -931,7 +931,7 @@ class CustomerController extends ApiController
         }
 
         // 查询该客户在目标门店、目标日期的未结清账单
-        $invoices = \App\Models\Invoice::with(['items', 'createdBy:id,name'])
+        $invoices = \App\Models\Invoice::with(['items', 'createdBy:id,name', 'discounts'])
             ->where('customer_id', $customer->id)
             ->where('store_id', $targetStoreId)
             ->whereDate('created_at', $targetDate)
@@ -946,7 +946,7 @@ class CustomerController extends ApiController
         // 计算汇总
         $totalAmount = $invoices->sum('amount');
         $totalPaid = $invoices->sum('paid_amount');
-        $totalRemaining = $totalAmount - $totalPaid;
+        $totalRemaining = $invoices->sum('actual_remaining_amount');
 
         // 格式化账单数据
         $formattedInvoices = $invoices->map(function ($invoice) {
@@ -955,7 +955,7 @@ class CustomerController extends ApiController
                 'invoice_number' => $invoice->invoice_number,
                 'amount' => number_format((float) $invoice->amount, 2, '.', ''),
                 'paid_amount' => number_format((float) $invoice->paid_amount, 2, '.', ''),
-                'remaining_amount' => number_format((float) ($invoice->amount - $invoice->paid_amount), 2, '.', ''),
+                'remaining_amount' => number_format((float) $invoice->actual_remaining_amount, 2, '.', ''),
                 'status' => $invoice->status,
                 'created_at' => $invoice->created_at->format('Y-m-d H:i:s'),
                 'created_by' => $invoice->createdBy ? [

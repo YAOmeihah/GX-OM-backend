@@ -104,6 +104,16 @@ class Payment extends Model
             $invoice->refresh();
         }
 
+        $invoice->loadMissing('discounts');
+
+        if (\App\Helpers\MoneyHelper::isGreaterThan($amount, $invoice->actual_remaining_amount)) {
+            throw new \InvalidArgumentException('分配金额超过了账单剩余未付金额');
+        }
+
+        if (\App\Helpers\MoneyHelper::isGreaterThan($amount, $this->unallocated_amount)) {
+            throw new \InvalidArgumentException('分配金额超过了还款剩余未分配金额');
+        }
+
         // 创建还款分配记录
         $allocation = $this->allocations()->create([
             'invoice_id' => $invoice->id,

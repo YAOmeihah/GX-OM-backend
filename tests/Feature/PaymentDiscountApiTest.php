@@ -8,6 +8,7 @@ use App\Models\Payment;
 use App\Models\PaymentDiscount;
 use App\Models\Store;
 use App\Models\User;
+use App\Services\AutoAllocationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -411,6 +412,74 @@ class PaymentDiscountApiTest extends TestCase
 
         $this->assertEquals(735.00, $response->json('data.suggestion.allocations.1.remaining_amount'));
         $this->assertEquals(500.00, $response->json('data.suggestion.allocations.1.suggested_amount'));
+    }
+
+    /** @test */
+    public function it_detects_excess_payment_using_store_scoped_actual_remaining_after_discounts()
+    {
+        PaymentDiscount::factory()->create([
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 100.00,
+            'discount_type' => 'discount',
+            'approved_by' => $this->storeOwner->id,
+        ]);
+
+        $otherStore = Store::factory()->create();
+        Invoice::factory()->create([
+            'store_id' => $otherStore->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 1000.00,
+            'paid_amount' => 0,
+            'status' => 'unpaid',
+        ]);
+
+        $payment = Payment::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 2300.00,
+            'received_by' => $this->storeOwner->id,
+        ]);
+
+        $excessInfo = (new AutoAllocationService)->detectExcessPayment($payment);
+
+        $this->assertTrue($excessInfo['is_excess']);
+        $this->assertEquals(65.00, $excessInfo['excess_amount']);
+        $this->assertEquals(2235.00, $excessInfo['total_debt']);
+    }
+
+    /** @test */
+    public function it_prevents_model_allocation_above_actual_remaining_after_discounts()
+    {
+        PaymentDiscount::factory()->create([
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 100.00,
+            'discount_type' => 'discount',
+            'approved_by' => $this->storeOwner->id,
+        ]);
+
+        $payment = Payment::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 800.00,
+            'received_by' => $this->storeOwner->id,
+        ]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('分配金额超过了账单剩余未付金额');
+
+        try {
+            $payment->allocateToInvoice($this->invoice2, 736.00, $this->storeOwner->id, false);
+        } finally {
+            $this->assertDatabaseMissing('payment_allocations', [
+                'payment_id' => $payment->id,
+                'invoice_id' => $this->invoice2->id,
+            ]);
+
+            $this->assertEquals(0.00, $payment->fresh()->allocated_amount);
+            $this->assertEquals(0.00, $this->invoice2->fresh()->paid_amount);
+        }
     }
 
     /** @test */
