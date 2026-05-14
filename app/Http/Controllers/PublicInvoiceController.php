@@ -80,7 +80,6 @@ class PublicInvoiceController extends ApiController
             if (!$customer || $customer->store_id != $storeId) {
                 return $this->errorResponse('客户不属于该门店', 422);
             }
-            }
         } else {
             $invoiceIds = $request->input('invoice_ids');
 

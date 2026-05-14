@@ -48,7 +48,7 @@ class PolicyTest extends TestCase
         $this->otherStoreOwner = $this->createStoreOwner([], $this->otherStore);
 
         // 创建客户
-        $this->customer = Customer::factory()->create();
+        $this->customer = Customer::factory()->create(['store_id' => $this->store->id]);
 
         // 创建账单
         $this->invoice = Invoice::factory()->create([

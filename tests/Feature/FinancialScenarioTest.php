@@ -46,7 +46,7 @@ class FinancialScenarioTest extends TestCase
         $this->storeStaff = $this->createStoreStaff([], $this->store);
 
         // 创建客户
-        $this->customer = Customer::factory()->create(['name' => '张三']);
+        $this->customer = Customer::factory()->create(['name' => '张三', 'store_id' => $this->store->id]);
 
         // 创建两个未付账单，总计2335元
         $this->invoice1 = Invoice::factory()->create([

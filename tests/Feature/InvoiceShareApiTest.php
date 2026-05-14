@@ -41,7 +41,7 @@ class InvoiceShareApiTest extends TestCase
         $this->storeOwner = $this->createStoreOwner([], $this->store);
 
         // 创建测试客户
-        $this->customer = Customer::factory()->create(['name' => '张三', 'phone' => '13912345678']);
+        $this->customer = Customer::factory()->create(['name' => '张三', 'phone' => '13912345678', 'store_id' => $this->store->id]);
 
         // 创建测试账单
         $this->invoice1 = Invoice::factory()->create([

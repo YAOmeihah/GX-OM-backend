@@ -17,10 +17,12 @@ class PaymentFactory extends Factory
 
     public function definition(): array
     {
+        $customer = Customer::factory()->create();
+
         return [
             'payment_number' => 'PAY-' . date('Ymd') . '-' . Str::random(5),
-            'store_id' => \App\Models\Store::factory(),
-            'customer_id' => Customer::factory(),
+            'store_id' => $customer->store_id,
+            'customer_id' => $customer->id,
             'received_by' => User::factory(),
             'amount' => fake()->randomFloat(2, 100, 5000),
             'allocated_amount' => 0,
