@@ -85,93 +85,54 @@ class Payment extends Model
         return $this->amount - $this->allocated_amount;
     }
 
-    /**
-     * 分配还款到指定账单
-     *
-     * 注意：此方法不再内部管理事务，调用方需要负责事务管理
-     * 如果需要原子操作，请使用 allocateToInvoiceWithTransaction()
-     *
-     * @param  Invoice  $invoice  目标账单
-     * @param  float  $amount  分配金额
-     * @param  int  $allocatedBy  操作用户ID
-     * @param  bool  $lockForUpdate  是否锁定记录防止并发问题
-     */
     public function allocateToInvoice(Invoice $invoice, float $amount, int $allocatedBy, bool $lockForUpdate = true): PaymentAllocation
     {
-        // 如果需要锁定，重新获取带锁的记录
-        if ($lockForUpdate) {
-            $this->refresh();
-            $invoice->refresh();
-        }
+        $allocate = function (Payment $payment, Invoice $invoice) use ($amount, $allocatedBy): PaymentAllocation {
+            $invoice->loadMissing('discounts');
 
-        $invoice->loadMissing('discounts');
+            if (\App\Helpers\MoneyHelper::isGreaterThan($amount, $invoice->actual_remaining_amount)) {
+                throw new \InvalidArgumentException('分配金额超过了账单剩余未付金额');
+            }
 
-        if (\App\Helpers\MoneyHelper::isGreaterThan($amount, $invoice->actual_remaining_amount)) {
-            throw new \InvalidArgumentException('分配金额超过了账单剩余未付金额');
-        }
-
-        if (\App\Helpers\MoneyHelper::isGreaterThan($amount, $this->unallocated_amount)) {
-            throw new \InvalidArgumentException('分配金额超过了还款剩余未分配金额');
-        }
-
-        // 创建还款分配记录
-        $allocation = $this->allocations()->create([
-            'invoice_id' => $invoice->id,
-            'amount' => $amount,
-            'allocated_by' => $allocatedBy,
-        ]);
-
-        // 更新还款已分配金额（saveQuietly 避免触发 Auditable update 事件，分配操作已由 PaymentAllocation create 日志覆盖）
-        $this->allocated_amount = \App\Helpers\MoneyHelper::add($this->allocated_amount, $amount);
-        $this->saveQuietly();
-
-        // 更新账单已付金额并更新状态
-        $invoice->paid_amount = \App\Helpers\MoneyHelper::add($invoice->paid_amount, $amount);
-        $invoice->updateStatus();
-
-        return $allocation;
-    }
-
-    /**
-     * 分配还款到指定账单（带事务和锁）
-     *
-     * 此方法提供完整的事务管理和并发控制
-     *
-     * @param  Invoice  $invoice  目标账单
-     * @param  float  $amount  分配金额
-     * @param  int  $allocatedBy  操作用户ID
-     */
-    public function allocateToInvoiceWithTransaction(Invoice $invoice, float $amount, int $allocatedBy): PaymentAllocation
-    {
-        return DB::transaction(function () use ($invoice, $amount, $allocatedBy) {
-            // 获取带锁的记录
-            $lockedPayment = self::lockForUpdate()->find($this->id);
-            $lockedInvoice = Invoice::lockForUpdate()->find($invoice->id);
-
-            if (! $lockedPayment || ! $lockedInvoice) {
-                throw new \Exception('无法锁定还款或账单记录');
+            if (\App\Helpers\MoneyHelper::isGreaterThan($amount, $payment->unallocated_amount)) {
+                throw new \InvalidArgumentException('分配金额超过了还款剩余未分配金额');
             }
 
             // 创建还款分配记录
-            $allocation = $lockedPayment->allocations()->create([
-                'invoice_id' => $lockedInvoice->id,
+            $allocation = $payment->allocations()->create([
+                'invoice_id' => $invoice->id,
                 'amount' => $amount,
                 'allocated_by' => $allocatedBy,
             ]);
 
-            // 更新还款已分配金额（saveQuietly 避免触发 Auditable update 事件）
-            $lockedPayment->allocated_amount = \App\Helpers\MoneyHelper::add($lockedPayment->allocated_amount, $amount);
-            $lockedPayment->saveQuietly();
+            // 更新还款已分配金额（saveQuietly 避免触发 Auditable update 事件，分配操作已由 PaymentAllocation create 日志覆盖）
+            $payment->allocated_amount = \App\Helpers\MoneyHelper::add($payment->allocated_amount, $amount);
+            $payment->saveQuietly();
 
             // 更新账单已付金额并更新状态
-            $lockedInvoice->paid_amount = \App\Helpers\MoneyHelper::add($lockedInvoice->paid_amount, $amount);
-            $lockedInvoice->updateStatus();
+            $invoice->paid_amount = \App\Helpers\MoneyHelper::add($invoice->paid_amount, $amount);
+            $invoice->updateStatus();
 
-            // 同步当前实例的数据
-            $this->allocated_amount = $lockedPayment->allocated_amount;
+            $this->allocated_amount = $payment->allocated_amount;
 
             return $allocation;
+        };
+
+        if (! $lockForUpdate) {
+            return $allocate($this, $invoice);
+        }
+
+        return DB::transaction(function () use ($invoice, $allocate) {
+            $lockedPayment = self::whereKey($this->id)->lockForUpdate()->firstOrFail();
+            $lockedInvoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+
+            return $allocate($lockedPayment, $lockedInvoice);
         });
+    }
+
+    public function allocateToInvoiceWithTransaction(Invoice $invoice, float $amount, int $allocatedBy): PaymentAllocation
+    {
+        return $this->allocateToInvoice($invoice, $amount, $allocatedBy);
     }
 
     /**
@@ -286,18 +247,24 @@ class Payment extends Model
         return $this->discounts()->sum('discount_amount');
     }
 
-    /**
-     * 创建优惠减免记录
-     */
     public function createDiscount(Invoice $invoice, float $amount, string $type, string $reason, int $approvedBy): \App\Models\PaymentDiscount
     {
-        return $this->discounts()->create([
-            'invoice_id' => $invoice->id,
-            'discount_amount' => $amount,
-            'discount_type' => $type,
-            'reason' => $reason,
-            'approved_by' => $approvedBy,
-        ]);
+        return DB::transaction(function () use ($invoice, $amount, $type, $reason, $approvedBy) {
+            $invoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+            $invoice->loadMissing('discounts');
+
+            if (\App\Helpers\MoneyHelper::isGreaterThan($amount, $invoice->actual_remaining_amount)) {
+                throw new \InvalidArgumentException('优惠减免金额超过了账单剩余未付金额');
+            }
+
+            return $this->discounts()->create([
+                'invoice_id' => $invoice->id,
+                'discount_amount' => $amount,
+                'discount_type' => $type,
+                'reason' => $reason,
+                'approved_by' => $approvedBy,
+            ]);
+        });
     }
 
     /**

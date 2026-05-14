@@ -8,11 +8,36 @@ use App\Models\Payment;
 use App\Models\PaymentDiscount;
 use App\Models\Store;
 use App\Models\User;
+use App\Services\AuditLogService;
 use App\Services\AutoAllocationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 use Tests\Traits\CreatesTestUsers;
+
+class InsertsInvoiceDiscountAfterDeleteAuditService extends AuditLogService
+{
+    public function __construct(private Payment $payment, private Invoice $invoice, private User $approvedBy) {}
+
+    public function logDelete(\Illuminate\Database\Eloquent\Model $model, ?string $description = null): \App\Models\AuditLog
+    {
+        PaymentDiscount::factory()->create([
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice->id,
+            'discount_amount' => 35.00,
+            'discount_type' => 'discount',
+            'approved_by' => $this->approvedBy->id,
+        ]);
+
+        return \App\Models\AuditLog::factory()->create([
+            'user_id' => $this->approvedBy->id,
+            'action' => \App\Models\AuditLog::ACTION_DELETE,
+            'auditable_type' => Invoice::class,
+            'auditable_id' => $this->invoice->id,
+            'business_store_id' => $this->invoice->store_id,
+        ]);
+    }
+}
 
 class PaymentDiscountApiTest extends TestCase
 {
@@ -726,6 +751,38 @@ class PaymentDiscountApiTest extends TestCase
     }
 
     /** @test */
+    public function it_prevents_model_discount_above_locked_actual_remaining()
+    {
+        PaymentDiscount::factory()->create([
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 835.00,
+            'discount_type' => 'discount',
+            'approved_by' => $this->storeOwner->id,
+        ]);
+
+        $payment = Payment::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 100.00,
+            'received_by' => $this->storeOwner->id,
+        ]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('优惠减免金额超过了账单剩余未付金额');
+
+        try {
+            $payment->createDiscount($this->invoice2, 1.00, 'discount', '锁内复查超额减免', $this->storeOwner->id);
+        } finally {
+            $this->assertDatabaseMissing('payment_discounts', [
+                'payment_id' => $payment->id,
+                'invoice_id' => $this->invoice2->id,
+                'discount_amount' => 1.00,
+            ]);
+        }
+    }
+
+    /** @test */
     public function it_includes_discount_info_in_customer_debt()
     {
         // 创建优惠减免记录
@@ -844,6 +901,76 @@ class PaymentDiscountApiTest extends TestCase
     }
 
     /** @test */
+    public function invoice_destructive_update_rechecks_financial_activity_inside_transaction()
+    {
+        $this->invoice2->items()->create([
+            'item_name' => '原始项目',
+            'quantity' => 1,
+            'unit_price' => 835.00,
+            'subtotal' => 835.00,
+            'sort_order' => 0,
+        ]);
+        $originalLineUid = $this->invoice2->items()->first()->line_uid;
+        $otherCustomer = Customer::factory()->create(['store_id' => $this->store->id]);
+        $payment = $this->payment;
+        $invoice = $this->invoice2;
+        $storeOwner = $this->storeOwner;
+
+        $request = new class($payment, $invoice, $storeOwner, $otherCustomer) extends \App\Http\Requests\Invoice\UpdateInvoiceRequest
+        {
+            public function __construct(
+                private Payment $payment,
+                private Invoice $invoice,
+                private User $storeOwner,
+                private Customer $otherCustomer
+            ) {
+                parent::__construct();
+            }
+
+            public function validated($key = null, $default = null)
+            {
+                PaymentDiscount::factory()->create([
+                    'payment_id' => $this->payment->id,
+                    'invoice_id' => $this->invoice->id,
+                    'discount_amount' => 35.00,
+                    'discount_type' => 'discount',
+                    'approved_by' => $this->storeOwner->id,
+                ]);
+
+                return [
+                    'customer_id' => $this->otherCustomer->id,
+                    'items' => [
+                        [
+                            'item_name' => '锁内应拒绝项目',
+                            'quantity' => 2,
+                            'unit_price' => 450.00,
+                        ],
+                    ],
+                ];
+            }
+        };
+        $request->setUserResolver(fn () => $this->storeOwner);
+
+        $response = app(\App\Http\Controllers\InvoiceController::class)->update($request, $this->invoice2->id);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertDatabaseHas('invoices', [
+            'id' => $this->invoice2->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 835.00,
+        ]);
+        $this->assertDatabaseHas('invoice_items', [
+            'invoice_id' => $this->invoice2->id,
+            'line_uid' => $originalLineUid,
+            'item_name' => '原始项目',
+        ]);
+        $this->assertDatabaseMissing('invoice_items', [
+            'invoice_id' => $this->invoice2->id,
+            'item_name' => '锁内应拒绝项目',
+        ]);
+    }
+
+    /** @test */
     public function invoice_with_discounts_cannot_be_deleted()
     {
         $discount = PaymentDiscount::factory()->create([
@@ -866,6 +993,31 @@ class PaymentDiscountApiTest extends TestCase
         $this->assertDatabaseHas('payment_discounts', [
             'id' => $discount->id,
             'invoice_id' => $this->invoice2->id,
+        ]);
+    }
+
+    /** @test */
+    public function invoice_destroy_rechecks_financial_activity_inside_transaction()
+    {
+        $this->app->instance(
+            AuditLogService::class,
+            new InsertsInvoiceDiscountAfterDeleteAuditService($this->payment, $this->invoice2, $this->storeOwner)
+        );
+
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->deleteJson("/api/invoices/{$this->invoice2->id}");
+
+        $response->assertStatus(422);
+        $this->assertDatabaseHas('invoices', [
+            'id' => $this->invoice2->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 835.00,
+        ]);
+        $this->assertDatabaseHas('payment_discounts', [
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 35.00,
         ]);
     }
 }
