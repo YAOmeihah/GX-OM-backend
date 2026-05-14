@@ -42,7 +42,7 @@ class PaymentDiscountApiTest extends TestCase
         $this->storeStaff = $this->createStoreStaff([], $this->store);
 
         // 创建测试客户
-        $this->customer = Customer::factory()->create();
+        $this->customer = Customer::factory()->create(['store_id' => $this->store->id]);
 
         // 创建测试账单（总计2335元）
         $this->invoice1 = Invoice::factory()->create([
