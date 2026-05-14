@@ -3,11 +3,8 @@
 namespace App\Console\Commands\Maintenance;
 
 use App\Models\Attachment;
-use App\Models\Invoice;
-use App\Models\Payment;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class SyncAttachmentsCommand extends Command
@@ -47,9 +44,9 @@ class SyncAttachmentsCommand extends Command
         $olderThanDays = (int) $this->option('older-than');
         $isDryRun = $this->option('dry-run');
 
-        $this->info("=== S3 附件同步工具 ===");
+        $this->info('=== S3 附件同步工具 ===');
         if ($isDryRun) {
-            $this->warn("[模拟运行模式]");
+            $this->warn('[模拟运行模式]');
         }
         $this->newLine();
 
@@ -64,7 +61,7 @@ class SyncAttachmentsCommand extends Command
         $this->displayOrphanFiles($orphanFiles);
 
         // 修复操作
-        if (!$checkOnly && !$isDryRun) {
+        if (! $checkOnly && ! $isDryRun) {
             if ($fixOrphanRecords && count($missingFiles) > 0) {
                 $this->fixOrphanRecords($missingFiles);
             }
@@ -92,7 +89,7 @@ class SyncAttachmentsCommand extends Command
                 }
 
                 try {
-                    if (!$disk->exists($attachment->file_path)) {
+                    if (! $disk->exists($attachment->file_path)) {
                         $missing[] = [
                             'id' => $attachment->id,
                             'file_path' => $attachment->file_path,
@@ -128,7 +125,7 @@ class SyncAttachmentsCommand extends Command
             $s3Files = $disk->allFiles();
 
             foreach ($s3Files as $s3Path) {
-                if (!in_array($s3Path, $dbPaths)) {
+                if (! in_array($s3Path, $dbPaths)) {
                     try {
                         $lastModified = Carbon::createFromTimestamp($disk->lastModified($s3Path));
 
@@ -163,16 +160,16 @@ class SyncAttachmentsCommand extends Command
     protected function displayMissingFiles(array $missing): void
     {
         if (empty($missing)) {
-            $this->info("  ✓ 所有数据库记录都有对应的S3文件");
+            $this->info('  ✓ 所有数据库记录都有对应的S3文件');
         } else {
-            $this->warn("  发现 " . count($missing) . " 条记录缺少S3文件");
+            $this->warn('  发现 '.count($missing).' 条记录缺少S3文件');
 
             if (count($missing) <= 10) {
                 foreach ($missing as $item) {
                     $this->line("    - ID:{$item['id']} - {$item['original_filename']}");
                 }
             } else {
-                $this->line("    (显示前10条)");
+                $this->line('    (显示前10条)');
                 foreach (array_slice($missing, 0, 10) as $item) {
                     $this->line("    - ID:{$item['id']} - {$item['original_filename']}");
                 }
@@ -187,19 +184,19 @@ class SyncAttachmentsCommand extends Command
     protected function displayOrphanFiles(array $orphans): void
     {
         if (empty($orphans)) {
-            $this->info("  ✓ S3中没有孤立文件");
+            $this->info('  ✓ S3中没有孤立文件');
         } else {
             $totalSize = array_sum(array_column($orphans, 'size'));
             $sizeHuman = $this->formatBytes($totalSize);
 
-            $this->warn("  发现 " . count($orphans) . " 个孤立文件 (共 {$sizeHuman})");
+            $this->warn('  发现 '.count($orphans)." 个孤立文件 (共 {$sizeHuman})");
 
             if (count($orphans) <= 10) {
                 foreach ($orphans as $item) {
                     $this->line("    - {$item['file_path']} ({$this->formatBytes($item['size'])})");
                 }
             } else {
-                $this->line("    (显示前10个)");
+                $this->line('    (显示前10个)');
                 foreach (array_slice($orphans, 0, 10) as $item) {
                     $this->line("    - {$item['file_path']} ({$this->formatBytes($item['size'])})");
                 }
@@ -213,7 +210,7 @@ class SyncAttachmentsCommand extends Command
      */
     protected function fixOrphanRecords(array $missing): void
     {
-        if (!$this->confirm('确认删除缺少S3文件的数据库记录?')) {
+        if (! $this->confirm('确认删除缺少S3文件的数据库记录?')) {
             return;
         }
 
@@ -228,7 +225,7 @@ class SyncAttachmentsCommand extends Command
      */
     protected function fixOrphanFiles(array $orphans): void
     {
-        if (!$this->confirm('确认删除S3中的孤立文件?')) {
+        if (! $this->confirm('确认删除S3中的孤立文件?')) {
             return;
         }
 
@@ -257,6 +254,7 @@ class SyncAttachmentsCommand extends Command
         for ($i = 0; $bytes > 1024 && $i < count($units) - 1; $i++) {
             $bytes /= 1024;
         }
-        return round($bytes, 2) . ' ' . $units[$i];
+
+        return round($bytes, 2).' '.$units[$i];
     }
 }

@@ -2,12 +2,12 @@
 
 namespace App\Console\Commands\Maintenance;
 
+use App\Models\Attachment;
 use App\Models\Invoice;
-use App\Models\Payment;
 use App\Models\InvoiceItem;
+use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\PaymentDiscount;
-use App\Models\Attachment;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -42,10 +42,10 @@ class OrphanCheckCommand extends Command
         $isDryRun = $this->option('dry-run');
         $shouldExport = $this->option('export');
 
-        $this->info("=== 孤立数据检测工具 ===");
+        $this->info('=== 孤立数据检测工具 ===');
         $this->info("检测类型: {$type}");
         if ($isDryRun) {
-            $this->warn("[模拟运行模式]");
+            $this->warn('[模拟运行模式]');
         }
         $this->newLine();
 
@@ -68,7 +68,7 @@ class OrphanCheckCommand extends Command
         }
 
         // 修复孤立数据
-        if ($shouldFix && !$isDryRun) {
+        if ($shouldFix && ! $isDryRun) {
             $totalOrphans = array_sum(array_column($results, 'count'));
             if ($totalOrphans > 0) {
                 if ($this->confirm('确认删除以上孤立数据?')) {
@@ -109,7 +109,7 @@ class OrphanCheckCommand extends Command
             'label' => '账单明细 (InvoiceItem)',
             'count' => $orphans->count(),
             'ids' => $orphans->pluck('id')->toArray(),
-            'details' => $orphans->map(fn($item) => [
+            'details' => $orphans->map(fn ($item) => [
                 'id' => $item->id,
                 'invoice_id' => $item->invoice_id,
                 'item_name' => $item->item_name,
@@ -257,7 +257,7 @@ class OrphanCheckCommand extends Command
     protected function exportReport(array $results): void
     {
         $exportDir = storage_path('app/maintenance_exports');
-        if (!is_dir($exportDir)) {
+        if (! is_dir($exportDir)) {
             mkdir($exportDir, 0755, true);
         }
 

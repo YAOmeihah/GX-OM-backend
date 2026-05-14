@@ -2,19 +2,14 @@
 
 namespace Tests\Feature;
 
-use App\Models\Attachment;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
-use App\Models\Payment;
-use App\Models\PaymentAllocation;
-use App\Models\PaymentDiscount;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class MaintenanceCommandsTest extends TestCase
@@ -22,7 +17,9 @@ class MaintenanceCommandsTest extends TestCase
     use RefreshDatabase;
 
     protected User $user;
+
     protected Store $store;
+
     protected Customer $customer;
 
     protected function setUp(): void
@@ -139,7 +136,6 @@ class MaintenanceCommandsTest extends TestCase
         // 实际删除验证已在 cleanup_history_only_cleans_paid_invoices 测试中完成
     }
 
-
     // ==================== OrphanCheckCommand Tests ====================
 
     /**
@@ -150,11 +146,12 @@ class MaintenanceCommandsTest extends TestCase
     public function orphan_check_detects_orphan_invoice_items(): void
     {
         // 临时禁用外键检查
-        Schema::disableForeignKeyConstraints();
+        DB::statement('PRAGMA defer_foreign_keys = ON');
 
         // 直接在数据库中创建孤立记录
         DB::table('invoice_items')->insert([
             'invoice_id' => 99999, // 不存在的账单ID
+            'line_uid' => (string) \Illuminate\Support\Str::uuid(),
             'item_name' => '孤立项目',
             'quantity' => 1,
             'unit_price' => 100,
@@ -164,15 +161,13 @@ class MaintenanceCommandsTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        Schema::enableForeignKeyConstraints();
+        DB::statement('PRAGMA defer_foreign_keys = OFF');
 
         $this->artisan('maintenance:orphan-check', ['--type' => 'invoice_items'])
             ->assertExitCode(0);
 
         // 清理测试数据
-        Schema::disableForeignKeyConstraints();
         DB::table('invoice_items')->where('invoice_id', 99999)->delete();
-        Schema::enableForeignKeyConstraints();
     }
 
     /**
@@ -214,6 +209,7 @@ class MaintenanceCommandsTest extends TestCase
         // 创建明细，总计只有 100 (不使用 factory 因为会触发计算)
         DB::table('invoice_items')->insert([
             'invoice_id' => $invoice->id,
+            'line_uid' => (string) \Illuminate\Support\Str::uuid(),
             'item_name' => '测试项',
             'quantity' => 1,
             'unit_price' => 100,
@@ -349,6 +345,8 @@ class MaintenanceCommandsTest extends TestCase
     {
         // 由于测试环境可能没有S3配置，我们只测试命令能否正确处理这种情况
         // 实际S3功能需要在集成测试中测试
+
+        config(['filesystems.disks.s3-compat.bucket' => null]);
 
         // 如果S3未配置，命令应该报错或优雅地处理
         // 这里我们跳过测试如果S3未配置

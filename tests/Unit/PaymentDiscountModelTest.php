@@ -2,25 +2,30 @@
 
 namespace Tests\Unit;
 
-use Tests\TestCase;
-use Tests\Traits\CreatesTestUsers;
-use App\Models\User;
-use App\Models\Store;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentDiscount;
+use App\Models\Store;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+use Tests\Traits\CreatesTestUsers;
 
 class PaymentDiscountModelTest extends TestCase
 {
-    use RefreshDatabase, CreatesTestUsers;
+    use CreatesTestUsers, RefreshDatabase;
 
     protected User $user;
+
     protected Store $store;
+
     protected Customer $customer;
+
     protected Invoice $invoice;
+
     protected Payment $payment;
+
     protected PaymentDiscount $discount;
 
     protected function setUp(): void
@@ -39,14 +44,14 @@ class PaymentDiscountModelTest extends TestCase
             'customer_id' => $this->customer->id,
             'amount' => 1000.00,
             'paid_amount' => 0,
-            'status' => 'unpaid'
+            'status' => 'unpaid',
         ]);
 
         $this->payment = Payment::factory()->create([
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'amount' => 965.00,
-            'received_by' => $this->user->id
+            'received_by' => $this->user->id,
         ]);
 
         $this->discount = PaymentDiscount::factory()->create([
@@ -54,7 +59,7 @@ class PaymentDiscountModelTest extends TestCase
             'invoice_id' => $this->invoice->id,
             'discount_amount' => 35.00,
             'discount_type' => PaymentDiscount::TYPE_DISCOUNT,
-            'approved_by' => $this->user->id
+            'approved_by' => $this->user->id,
         ]);
     }
 
@@ -107,7 +112,7 @@ class PaymentDiscountModelTest extends TestCase
             'payment_id' => $this->payment->id,
             'invoice_id' => $this->invoice->id,
             'discount_type' => PaymentDiscount::TYPE_WRITE_OFF,
-            'approved_by' => $this->user->id
+            'approved_by' => $this->user->id,
         ]);
 
         $this->assertTrue($writeOffDiscount->isWriteOff());
@@ -129,7 +134,7 @@ class PaymentDiscountModelTest extends TestCase
             'payment_id' => $this->payment->id,
             'invoice_id' => $this->invoice->id,
             'discount_type' => PaymentDiscount::TYPE_WRITE_OFF,
-            'approved_by' => $this->user->id
+            'approved_by' => $this->user->id,
         ]);
 
         $this->assertEquals('坏账核销', $writeOffDiscount->discount_type_name);
@@ -143,7 +148,7 @@ class PaymentDiscountModelTest extends TestCase
             'payment_id' => $this->payment->id,
             'invoice_id' => $this->invoice->id,
             'discount_type' => PaymentDiscount::TYPE_PROMOTION,
-            'approved_by' => $this->user->id
+            'approved_by' => $this->user->id,
         ]);
 
         // 测试按类型筛选
@@ -174,7 +179,7 @@ class PaymentDiscountModelTest extends TestCase
             'customer_id' => $this->customer->id,
             'amount' => 500.00,
             'paid_amount' => 0,
-            'status' => 'unpaid'
+            'status' => 'unpaid',
         ]);
 
         $discount = $this->payment->createDiscount(
@@ -195,7 +200,7 @@ class PaymentDiscountModelTest extends TestCase
             'payment_id' => $this->payment->id,
             'invoice_id' => $newInvoice->id,
             'discount_amount' => 25.00,
-            'discount_type' => PaymentDiscount::TYPE_PROMOTION
+            'discount_type' => PaymentDiscount::TYPE_PROMOTION,
         ]);
     }
 
@@ -208,7 +213,7 @@ class PaymentDiscountModelTest extends TestCase
             'invoice_id' => $this->invoice->id,
             'discount_amount' => 15.00,
             'discount_type' => PaymentDiscount::TYPE_PROMOTION,
-            'approved_by' => $this->user->id
+            'approved_by' => $this->user->id,
         ]);
 
         $summary = $this->payment->discount_summary;
@@ -237,7 +242,7 @@ class PaymentDiscountModelTest extends TestCase
             'invoice_id' => $this->invoice->id,
             'discount_amount' => 65.00,
             'discount_type' => PaymentDiscount::TYPE_PROMOTION,
-            'approved_by' => $this->user->id
+            'approved_by' => $this->user->id,
         ]);
 
         $this->invoice->refresh();
@@ -280,7 +285,7 @@ class PaymentDiscountModelTest extends TestCase
             'customer_id' => $this->customer->id,
             'amount' => 800.00,
             'paid_amount' => 200.00,
-            'status' => 'partially_paid'
+            'status' => 'partially_paid',
         ]);
 
         // 为第二个账单创建折扣
@@ -289,7 +294,7 @@ class PaymentDiscountModelTest extends TestCase
             'invoice_id' => $invoice2->id,
             'discount_amount' => 50.00,
             'discount_type' => PaymentDiscount::TYPE_DISCOUNT,
-            'approved_by' => $this->user->id
+            'approved_by' => $this->user->id,
         ]);
 
         // 传统欠款：(1000 - 0) + (800 - 200) = 1600

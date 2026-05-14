@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Role;
+use App\Models\Store;
+use App\Models\User;
 use App\Services\AuditLogService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
-use App\Models\User;
-use App\Models\Role;
-use App\Models\Store;
 
 /**
  * @group 认证管理
@@ -83,7 +83,7 @@ class AuthController extends ApiController
 
         $user = User::where($loginField, $request->login)->first();
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        if (! $user || ! Hash::check($request->password, $user->password)) {
             // 记录登录失败的审计日志
             if ($user) {
                 $this->auditLogService->logLogin($user, false, '密码错误');
@@ -209,7 +209,6 @@ class AuthController extends ApiController
      * @bodyParam username string required 登录用户名，最大255字符，必须唯一 Example: zhangsan
      * @bodyParam email string required 邮箱地址，必须唯一 Example: zhangsan@example.com
      * @bodyParam password string required 密码，最少6位 Example: password123
-     * @bodyParam password_confirmation string required 确认密码，必须与password一致 Example: password123
      *
      * @response 200 scenario="注册成功" {
      *   "success": true,
@@ -221,8 +220,7 @@ class AuthController extends ApiController
      *       "email": "zhangsan@example.com",
      *       "roles": ["store_staff"],
      *       "stores": []
-     *     },
-     *     "token": "2|abcdefghijklmnopqrstuvwxyz123456"
+     *     }
      *   },
      *   "message": "注册成功"
      * }
@@ -247,7 +245,7 @@ class AuthController extends ApiController
             'name' => 'required|string|max:255',
             'username' => 'required|string|max:255|unique:users,username',
             'email' => 'required|string|email|max:255|unique:users,email',
-            'password' => 'required|string|min:6|confirmed',
+            'password' => 'required|string|min:6',
         ]);
 
         // 创建用户
@@ -264,9 +262,6 @@ class AuthController extends ApiController
             $user->roles()->attach($staffRole->id);
         }
 
-        // 创建令牌
-        $token = $user->createToken('api-token')->plainTextToken;
-
         // 加载用户关联数据
         $user->load(['roles', 'stores']);
 
@@ -277,16 +272,15 @@ class AuthController extends ApiController
                 'username' => $user->username,
                 'email' => $user->email,
                 'roles' => $user->roles->pluck('slug')->toArray(),
-                'stores' => $user->stores->map(function ($store) {
+                'stores' => $user->stores->map(function ($store) use ($user) {
                     return [
                         'id' => $store->id,
                         'name' => $store->name,
                         'code' => $store->code,
-                        'is_manager' => $store->pivot->is_manager,
+                        'is_manager' => $user->isManagerOfStore($store->id),
                     ];
                 }),
             ],
-            'token' => $token,
         ], '注册成功');
     }
 
@@ -347,7 +341,7 @@ class AuthController extends ApiController
         $user = $request->user();
 
         // 验证当前密码是否正确
-        if (!Hash::check($request->current_password, $user->password)) {
+        if (! Hash::check($request->current_password, $user->password)) {
             throw ValidationException::withMessages([
                 'current_password' => ['当前密码错误'],
             ]);
@@ -376,7 +370,7 @@ class AuthController extends ApiController
      *
      * 管理员用户返回系统中所有门店，其他用户返回其关联的门店
      *
-     * @param User $user 用户实例
+     * @param  User  $user  用户实例
      * @return array 门店列表数组
      */
     private function getUserStoresResponse(User $user): array
@@ -394,12 +388,12 @@ class AuthController extends ApiController
         }
 
         // 非管理员返回关联的门店
-        return $user->stores->map(function ($store) {
+        return $user->stores->map(function ($store) use ($user) {
             return [
                 'id' => $store->id,
                 'name' => $store->name,
                 'code' => $store->code,
-                'is_manager' => $store->pivot->is_manager ?? false,
+                'is_manager' => $user->isManagerOfStore($store->id),
             ];
         })->toArray();
     }

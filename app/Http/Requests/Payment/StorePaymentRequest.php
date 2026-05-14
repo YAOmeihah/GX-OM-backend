@@ -3,11 +3,10 @@
 namespace App\Http\Requests\Payment;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 /**
  * 创建还款记录请求验证
- * 
+ *
  * 将 PaymentController::store() 中的验证逻辑抽离到此处
  */
 class StorePaymentRequest extends FormRequest
@@ -17,14 +16,9 @@ class StorePaymentRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        $storeId = $this->input('store_id');
-
-        if (!$storeId) {
-            return false;
-        }
-
         $user = $this->user();
-        return $user->isAdmin() || $user->belongsToStore($storeId);
+
+        return $user && ($user->isAdmin() || $user->isStoreOwner() || $user->isStoreStaff());
     }
 
     /**
@@ -50,6 +44,28 @@ class StorePaymentRequest extends FormRequest
             'discount_data.*.type' => 'nullable|string|in:write_off,discount,promotion',
             'discount_data.*.reason' => 'nullable|string|max:500',
         ];
+    }
+
+    /**
+     * 配置验证器实例
+     */
+    public function withValidator($validator)
+    {
+        $validator->after(function ($validator) {
+            $storeId = $this->input('store_id');
+            if ($storeId && ! $this->user()->isAdmin() && ! $this->user()->belongsToStore($storeId)) {
+                $validator->errors()->add('store_id', '你没有权限在此门店创建还款');
+            }
+
+            // 验证：客户必须属于所选门店
+            $customerId = $this->input('customer_id');
+            if ($storeId && $customerId) {
+                $customer = \App\Models\Customer::find($customerId);
+                if ($customer && $customer->store_id != $storeId) {
+                    $validator->errors()->add('customer_id', '该客户不属于所选门店');
+                }
+            }
+        });
     }
 
     /**

@@ -59,7 +59,7 @@ class ConfigController extends ApiController
     public function getAttachmentConfig()
     {
         // 只有系统管理员可以查看配置
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             return $this->errorResponse('需要系统管理员权限', 403);
         }
 
@@ -85,7 +85,7 @@ class ConfigController extends ApiController
                 'endpoint' => config('filesystems.disks.s3-compat.endpoint'),
                 'access_key' => config('filesystems.disks.s3-compat.key') ? '已配置' : '未配置',
                 'secret_key' => config('filesystems.disks.s3-compat.secret') ? '已配置' : '未配置',
-            ]
+            ],
         ];
 
         return $this->successResponse($config);
@@ -130,7 +130,7 @@ class ConfigController extends ApiController
     public function updateS3Config(Request $request)
     {
         // 只有系统管理员可以更新配置
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             return $this->errorResponse('需要系统管理员权限', 403);
         }
 
@@ -153,8 +153,8 @@ class ConfigController extends ApiController
             // 测试连接
             $testResult = $this->testS3ConnectionInternal();
 
-            if (!$testResult['success']) {
-                return $this->errorResponse('配置测试失败：' . $testResult['message'], 422);
+            if (! $testResult['success']) {
+                return $this->errorResponse('配置测试失败：'.$testResult['message'], 422);
             }
 
             // 更新环境文件
@@ -169,7 +169,7 @@ class ConfigController extends ApiController
             return $this->successResponse(null, 'S3存储配置更新成功');
 
         } catch (\Exception $e) {
-            return $this->errorResponse('配置更新失败：' . $e->getMessage(), 500);
+            return $this->errorResponse('配置更新失败：'.$e->getMessage(), 500);
         }
     }
 
@@ -203,7 +203,7 @@ class ConfigController extends ApiController
     public function testS3Connection()
     {
         // 只有系统管理员可以测试连接
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             return $this->errorResponse('需要系统管理员权限', 403);
         }
 
@@ -216,7 +216,7 @@ class ConfigController extends ApiController
             return $this->successResponse(['status' => 'connected'], 'S3存储连接测试成功');
 
         } catch (\Exception $e) {
-            return $this->errorResponse('连接测试失败：' . $e->getMessage(), 422);
+            return $this->errorResponse('连接测试失败：'.$e->getMessage(), 422);
         }
     }
 
@@ -242,7 +242,7 @@ class ConfigController extends ApiController
     {
         $envFile = base_path('.env');
 
-        if (!file_exists($envFile)) {
+        if (! file_exists($envFile)) {
             throw new \RuntimeException('.env文件不存在');
         }
 

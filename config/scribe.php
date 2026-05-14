@@ -74,7 +74,7 @@ return [
     ],
 
     'external' => [
-        'html_attributes' => []
+        'html_attributes' => [],
     ],
 
     'try_it_out' => [
@@ -122,7 +122,7 @@ return [
     ],
 
     // Text to place in the "Introduction" section, right after the `description`. Markdown and HTML are supported.
-    'intro_text' => <<<INTRO
+    'intro_text' => <<<'INTRO'
 欢迎使用债务管理系统 API 文档！本文档提供了与 API 交互所需的全部信息。
 
 ## 主要功能
@@ -250,8 +250,8 @@ INTRO
                 [
                     'Content-Type' => 'application/json',
                     'Accept' => 'application/json',
-                ]
-            ]
+                ],
+            ],
         ],
         'bodyParameters' => [
             Strategies\BodyParameters\GetFromFormRequest::class,
@@ -273,8 +273,8 @@ INTRO
                     'config' => [
                         'app.debug' => false,
                     ],
-                ]
-            ]
+                ],
+            ],
         ],
         'responseFields' => [
             Strategies\ResponseFields\GetFromResponseFieldAttribute::class,

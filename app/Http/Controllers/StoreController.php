@@ -2,9 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Customer;
+use App\Models\CustomerStoreStat;
+use App\Models\Invoice;
+use App\Models\Payment;
 use App\Models\Store;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /**
@@ -113,7 +118,7 @@ class StoreController extends ApiController
      */
     public function store(Request $request)
     {
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             return $this->errorResponse('权限不足', 403);
         }
 
@@ -174,7 +179,7 @@ class StoreController extends ApiController
     {
         $store = Store::findOrFail($id);
 
-        if (!$this->isAdmin() && !$this->belongsToStore($store->id)) {
+        if (! $this->isAdmin() && ! $this->belongsToStore($store->id)) {
             return $this->errorResponse('权限不足', 403);
         }
 
@@ -235,7 +240,7 @@ class StoreController extends ApiController
     {
         $store = Store::findOrFail($id);
 
-        if (!$this->isAdmin() && !$this->isManagerOfStore($store->id)) {
+        if (! $this->isAdmin() && ! $this->isManagerOfStore($store->id)) {
             return $this->errorResponse('需要系统管理员权限或店长权限', 403);
         }
 
@@ -265,7 +270,7 @@ class StoreController extends ApiController
      * 删除门店
      *
      * 删除指定门店。仅系统管理员可执行此操作。
-     * 注意：删除门店前应确保没有关联的账单、还款等数据。
+     * 删除前检查关联数据，存在账单/还款/客户/统计时返回业务错误。
      *
      * @urlParam id integer required 门店ID Example: 1
      *
@@ -273,6 +278,10 @@ class StoreController extends ApiController
      *   "success": true,
      *   "data": null,
      *   "message": "门店删除成功"
+     * }
+     * @response 422 scenario="存在关联数据" {
+     *   "success": false,
+     *   "message": "该门店存在关联数据，无法删除"
      * }
      * @response 404 scenario="门店不存在" {
      *   "success": false,
@@ -291,12 +300,26 @@ class StoreController extends ApiController
      */
     public function destroy($id)
     {
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             return $this->errorResponse('权限不足', 403);
         }
 
         $store = Store::findOrFail($id);
-        $store->delete();
+
+        // 检查关联数据
+        $hasInvoices = Invoice::where('store_id', $store->id)->exists();
+        $hasPayments = Payment::where('store_id', $store->id)->exists();
+        $hasCustomers = Customer::where('store_id', $store->id)->exists();
+        $hasStats = CustomerStoreStat::where('store_id', $store->id)->exists();
+
+        if ($hasInvoices || $hasPayments || $hasCustomers || $hasStats) {
+            return $this->errorResponse('该门店存在关联的账单、还款、客户或统计数据，无法删除', 422);
+        }
+
+        DB::transaction(function () use ($store) {
+            $store->users()->detach();
+            $store->delete();
+        });
 
         return $this->successResponse(null, '门店删除成功');
     }
@@ -325,7 +348,7 @@ class StoreController extends ApiController
         $store = Store::findOrFail($id);
 
         // 检查权限：管理员或该门店员工
-        if (!$this->isAdmin() && !$this->belongsToStore($store->id)) {
+        if (! $this->isAdmin() && ! $this->belongsToStore($store->id)) {
             return $this->errorResponse('权限不足', 403);
         }
 
@@ -352,7 +375,7 @@ class StoreController extends ApiController
         $store = Store::findOrFail($id);
 
         // 权限检查：需管理员或该门店员工
-        if (!$this->isAdmin() && !$this->belongsToStore($store->id)) {
+        if (! $this->isAdmin() && ! $this->belongsToStore($store->id)) {
             return $this->errorResponse('权限不足', 403);
         }
 

@@ -15,7 +15,7 @@ Route::get('/login', function () {
         'authentication_method' => 'POST',
         'required_fields' => [
             'login' => '用户名或邮箱',
-            'password' => '密码'
+            'password' => '密码',
         ],
         'response_format' => 'JSON',
         'example_request' => [
@@ -23,14 +23,14 @@ Route::get('/login', function () {
             'method' => 'POST',
             'headers' => [
                 'Content-Type' => 'application/json',
-                'Accept' => 'application/json'
+                'Accept' => 'application/json',
             ],
             'body' => [
                 'login' => 'admin@example.com',
-                'password' => 'password'
-            ]
-        ]
+                'password' => 'password',
+            ],
+        ],
     ], 200, [
-        'Content-Type' => 'application/json'
+        'Content-Type' => 'application/json',
     ]);
 })->name('login');

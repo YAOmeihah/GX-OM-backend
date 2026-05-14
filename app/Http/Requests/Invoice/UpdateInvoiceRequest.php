@@ -7,7 +7,7 @@ use Illuminate\Foundation\Http\FormRequest;
 
 /**
  * 更新账单请求验证
- * 
+ *
  * 将 InvoiceController::update() 中的验证逻辑抽离到此处
  */
 class UpdateInvoiceRequest extends FormRequest
@@ -19,11 +19,12 @@ class UpdateInvoiceRequest extends FormRequest
     {
         $invoice = $this->getInvoice();
 
-        if (!$invoice) {
+        if (! $invoice) {
             return false;
         }
 
         $user = $this->user();
+
         return $user->isAdmin() || $user->isManagerOfStore($invoice->store_id);
     }
 
@@ -93,6 +94,23 @@ class UpdateInvoiceRequest extends FormRequest
         }
 
         return null;
+    }
+
+    /**
+     * 配置验证器实例
+     */
+    public function withValidator($validator)
+    {
+        $validator->after(function ($validator) {
+            $customerId = $this->input('customer_id');
+            if ($customerId) {
+                $invoice = $this->getInvoice();
+                $customer = \App\Models\Customer::find($customerId);
+                if ($customer && $invoice && $customer->store_id != $invoice->store_id) {
+                    $validator->errors()->add('customer_id', '该客户不属于此账单的门店');
+                }
+            }
+        });
     }
 
     /**

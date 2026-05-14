@@ -57,16 +57,27 @@ class AuditLog extends Model
      * 操作类型常量
      */
     public const ACTION_CREATE = 'create';
+
     public const ACTION_UPDATE = 'update';
+
     public const ACTION_DELETE = 'delete';
+
     public const ACTION_VIEW = 'view';
+
     public const ACTION_LOGIN = 'login';
+
     public const ACTION_LOGOUT = 'logout';
+
     public const ACTION_ALLOCATE = 'allocate';
+
     public const ACTION_DISCOUNT = 'discount';
+
     public const ACTION_UPLOAD = 'upload';
+
     public const ACTION_DOWNLOAD = 'download';
+
     public const ACTION_EXPORT = 'export';
+
     public const ACTION_IMPORT = 'import';
 
     /**
@@ -93,47 +104,47 @@ class AuditLog extends Model
      */
     public const FIELD_LABELS = [
         // 通用
-        'id'                => 'ID',
-        'created_at'        => '创建时间',
-        'updated_at'        => '更新时间',
-        'deleted_at'        => '删除时间',
-        'customer_id'       => '客户',
-        'user_id'           => '操作用户',
-        'description'       => '备注',
-        'status'            => '状态',
+        'id' => 'ID',
+        'created_at' => '创建时间',
+        'updated_at' => '更新时间',
+        'deleted_at' => '删除时间',
+        'customer_id' => '客户',
+        'user_id' => '操作用户',
+        'description' => '备注',
+        'status' => '状态',
         // Invoice
-        'invoice_number'    => '账单编号',
-        'amount'            => '账单金额',
-        'paid_amount'       => '已付金额',
-        'due_date'          => '到期日期',
-        'created_by'        => '创建人',
+        'invoice_number' => '账单编号',
+        'amount' => '账单金额',
+        'paid_amount' => '已付金额',
+        'due_date' => '到期日期',
+        'created_by' => '创建人',
         // Payment
-        'payment_number'    => '还款编号',
-        'payment_method'    => '还款方式',
-        'remaining_amount'  => '剩余金额',
+        'payment_number' => '还款编号',
+        'payment_method' => '还款方式',
+        'remaining_amount' => '剩余金额',
         // Customer
-        'name'              => '姓名',
-        'phone'             => '手机号',
-        'email'             => '邮箱',
-        'address'           => '地址',
+        'name' => '姓名',
+        'phone' => '手机号',
+        'email' => '邮箱',
+        'address' => '地址',
         // Store
-        'code'              => '门店编码',
-        'contact_phone'     => '联系电话',
+        'code' => '门店编码',
+        'contact_phone' => '联系电话',
         // User
-        'username'          => '用户名',
-        'role'              => '角色',
+        'username' => '用户名',
+        'role' => '角色',
         // PaymentAllocation
-        'invoice_id'        => '账单',
-        'payment_id'        => '还款',
-        'allocated_amount'  => '分配金额',
+        'invoice_id' => '账单',
+        'payment_id' => '还款',
+        'allocated_amount' => '分配金额',
         // PaymentDiscount
-        'discount_amount'   => '减免金额',
-        'discount_type'     => '减免类型',
-        'reason'            => '减免原因',
+        'discount_amount' => '减免金额',
+        'discount_type' => '减免类型',
+        'reason' => '减免原因',
         // Attachment
         'original_filename' => '文件名',
-        'file_size'         => '文件大小',
-        'mime_type'         => '文件类型',
+        'file_size' => '文件大小',
+        'mime_type' => '文件类型',
     ];
 
     /**
@@ -142,24 +153,24 @@ class AuditLog extends Model
      */
     public const FIELD_VALUE_LABELS = [
         // Invoice status
-        'status.unpaid'         => '未付款',
+        'status.unpaid' => '未付款',
         'status.partially_paid' => '部分付款',
-        'status.paid'           => '已付清',
-        'status.overdue'        => '已逾期',
+        'status.paid' => '已付清',
+        'status.overdue' => '已逾期',
         // Payment method
-        'payment_method.cash'         => '现金',
+        'payment_method.cash' => '现金',
         'payment_method.bank_transfer' => '银行转账',
-        'payment_method.wechat'       => '微信支付',
-        'payment_method.alipay'       => '支付宝',
-        'payment_method.other'        => '其他',
+        'payment_method.wechat' => '微信支付',
+        'payment_method.alipay' => '支付宝',
+        'payment_method.other' => '其他',
         // PaymentDiscount type
-        'discount_type.discount'   => '折扣',
-        'discount_type.promotion'  => '促销优惠',
-        'discount_type.write_off'  => '坏账核销',
+        'discount_type.discount' => '折扣',
+        'discount_type.promotion' => '促销优惠',
+        'discount_type.write_off' => '坏账核销',
         // Boolean
-        'is_success.1'  => '成功',
-        'is_success.0'  => '失败',
-        'is_success.'   => '-',
+        'is_success.1' => '成功',
+        'is_success.0' => '失败',
+        'is_success.' => '-',
     ];
 
     /**
@@ -246,12 +257,12 @@ class AuditLog extends Model
             $changes[] = [
                 // 原有字段，保持不变
                 'field' => $field,
-                'old'   => $oldVal,
-                'new'   => $newVal,
+                'old' => $oldVal,
+                'new' => $newVal,
                 // 新增语义化字段
                 'field_label' => self::FIELD_LABELS[$field] ?? $field,
-                'old_label'   => $this->resolveValueLabel($field, $oldVal),
-                'new_label'   => $this->resolveValueLabel($field, $newVal),
+                'old_label' => $this->resolveValueLabel($field, $oldVal),
+                'new_label' => $this->resolveValueLabel($field, $newVal),
             ];
         }
 
@@ -277,7 +288,7 @@ class AuditLog extends Model
             return $value ? '是' : '否';
         }
 
-        $key = $field . '.' . $value;
+        $key = $field.'.'.$value;
         if (isset(self::FIELD_VALUE_LABELS[$key])) {
             return self::FIELD_VALUE_LABELS[$key];
         }
@@ -331,6 +342,7 @@ class AuditLog extends Model
         if ($endDate) {
             $query->whereDate('created_at', '<=', $endDate);
         }
+
         return $query;
     }
 
@@ -369,9 +381,6 @@ class AuditLog extends Model
     /**
      * Prepare a date for array / JSON serialization.
      * 使用本地时区格式，避免前端时区转换问题
-     *
-     * @param  \DateTimeInterface  $date
-     * @return string
      */
     protected function serializeDate(\DateTimeInterface $date): string
     {

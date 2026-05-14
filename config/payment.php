@@ -22,20 +22,20 @@ return [
             'name' => '坏账核销',
             'max_amount' => 2000,
             'requires_approval' => true,
-            'approval_roles' => ['admin', 'store_owner']
+            'approval_roles' => ['admin', 'store_owner'],
         ],
         'discount' => [
             'name' => '折扣',
             'max_amount' => 500,
             'requires_approval' => false,
-            'approval_roles' => ['admin', 'store_owner', 'store_staff']
+            'approval_roles' => ['admin', 'store_owner', 'store_staff'],
         ],
         'promotion' => [
             'name' => '促销优惠',
             'max_amount' => 1000,
             'requires_approval' => false,
-            'approval_roles' => ['admin', 'store_owner']
-        ]
+            'approval_roles' => ['admin', 'store_owner'],
+        ],
     ],
 
     // 自动优惠减免配置
@@ -50,5 +50,5 @@ return [
         'log_all_discounts' => true,
         'require_reason' => true,
         'min_reason_length' => 5,
-    ]
+    ],
 ];

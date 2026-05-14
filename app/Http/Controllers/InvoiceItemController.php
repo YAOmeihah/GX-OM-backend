@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 
 /**
  * @group 账单明细
@@ -70,7 +69,7 @@ class InvoiceItemController extends ApiController
         $invoice = Invoice::findOrFail($invoiceId);
 
         // 验证用户是否有权限查看该账单
-        if (!$this->isAdmin() && !$this->belongsToStore($invoice->store_id)) {
+        if (! $this->isAdmin() && ! $this->belongsToStore($invoice->store_id)) {
             return $this->errorResponse('权限不足', 403);
         }
 
@@ -140,7 +139,7 @@ class InvoiceItemController extends ApiController
         $invoice = Invoice::findOrFail($invoiceId);
 
         // 验证用户是否有权限修改该账单
-        if (!$this->isAdmin() && !$this->isManagerOfStore($invoice->store_id)) {
+        if (! $this->isAdmin() && ! $this->isManagerOfStore($invoice->store_id)) {
             return $this->errorResponse('需要系统管理员权限或店长权限', 403);
         }
 
@@ -223,7 +222,7 @@ class InvoiceItemController extends ApiController
         $invoice = $item->invoice;
 
         // 验证用户是否有权限修改该账单
-        if (!$this->isAdmin() && !$this->isManagerOfStore($invoice->store_id)) {
+        if (! $this->isAdmin() && ! $this->isManagerOfStore($invoice->store_id)) {
             return $this->errorResponse('需要系统管理员权限或店长权限', 403);
         }
 
@@ -287,7 +286,7 @@ class InvoiceItemController extends ApiController
         $invoice = $item->invoice;
 
         // 验证用户是否有权限修改该账单
-        if (!$this->isAdmin() && !$this->isManagerOfStore($invoice->store_id)) {
+        if (! $this->isAdmin() && ! $this->isManagerOfStore($invoice->store_id)) {
             return $this->errorResponse('需要系统管理员权限或店长权限', 403);
         }
 

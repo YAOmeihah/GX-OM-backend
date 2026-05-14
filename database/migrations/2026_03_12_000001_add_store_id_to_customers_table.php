@@ -29,7 +29,7 @@ return new class extends Migration
 
         // ── 2. 单店客户：直接赋值 ──────────────────────────────────────────
         if (DB::getDriverName() !== 'sqlite') {
-            DB::statement("
+            DB::statement('
                 UPDATE customers c
                 JOIN (
                     SELECT customer_id, MIN(store_id) AS store_id
@@ -39,10 +39,10 @@ return new class extends Migration
                 ) single ON c.id = single.customer_id
                 SET c.store_id = single.store_id
                 WHERE c.store_id IS NULL
-            ");
+            ');
 
             // 同样处理只有 payments 没有 invoices 的客户
-            DB::statement("
+            DB::statement('
                 UPDATE customers c
                 JOIN (
                     SELECT customer_id, MIN(store_id) AS store_id
@@ -52,13 +52,13 @@ return new class extends Migration
                 ) single ON c.id = single.customer_id
                 SET c.store_id = single.store_id
                 WHERE c.store_id IS NULL
-            ");
+            ');
         }
 
         // ── 3. 跨店客户：克隆 ─────────────────────────────────────────────
         // Note: GROUP_CONCAT with ORDER BY is MySQL-specific; skip entire block under SQLite
         if (DB::getDriverName() !== 'sqlite') {
-            $crossStoreCustomers = DB::select("
+            $crossStoreCustomers = DB::select('
                 SELECT c.id, c.name, c.phone, c.email, c.address, c.id_card, c.remarks,
                        c.created_at, c.updated_at,
                        GROUP_CONCAT(DISTINCT i.store_id ORDER BY i.store_id) AS store_ids
@@ -67,7 +67,7 @@ return new class extends Migration
                 WHERE c.store_id IS NULL
                 GROUP BY c.id, c.name, c.phone, c.email, c.address, c.id_card, c.remarks, c.created_at, c.updated_at
                 HAVING COUNT(DISTINCT i.store_id) > 1
-            ");
+            ');
 
             foreach ($crossStoreCustomers as $customer) {
                 $storeIds = explode(',', $customer->store_ids);
@@ -85,13 +85,13 @@ return new class extends Migration
                     } else {
                         // 其余门店：克隆新记录
                         $newId = DB::table('customers')->insertGetId([
-                            'store_id'   => $storeId,
-                            'name'       => $customer->name,
-                            'phone'      => $customer->phone,
-                            'email'      => $customer->email,
-                            'address'    => $customer->address,
-                            'id_card'    => $customer->id_card,
-                            'remarks'    => $customer->remarks,
+                            'store_id' => $storeId,
+                            'name' => $customer->name,
+                            'phone' => $customer->phone,
+                            'email' => $customer->email,
+                            'address' => $customer->address,
+                            'id_card' => $customer->id_card,
+                            'remarks' => $customer->remarks,
                             'created_at' => $customer->created_at,
                             'updated_at' => $customer->updated_at,
                         ]);

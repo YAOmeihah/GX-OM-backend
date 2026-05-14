@@ -4,12 +4,9 @@ namespace App\Console\Commands\Maintenance;
 
 use App\Models\Invoice;
 use App\Models\Payment;
-use App\Models\InvoiceItem;
 use App\Models\PaymentAllocation;
-use App\Models\PaymentDiscount;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 
 class IntegrityCheckCommand extends Command
 {
@@ -41,7 +38,7 @@ class IntegrityCheckCommand extends Command
         $storeId = $this->option('store');
         $shouldReport = $this->option('report');
 
-        $this->info("=== 数据完整性检查工具 ===");
+        $this->info('=== 数据完整性检查工具 ===');
         $this->info("检查类型: {$type}");
         if ($storeId) {
             $this->info("限定门店: {$storeId}");
@@ -271,12 +268,12 @@ class IntegrityCheckCommand extends Command
 
         if ($result['count'] > 0 && count($result['issues']) <= 5) {
             foreach ($result['issues'] as $issue) {
-                $this->warn("  - " . json_encode($issue, JSON_UNESCAPED_UNICODE));
+                $this->warn('  - '.json_encode($issue, JSON_UNESCAPED_UNICODE));
             }
         } elseif ($result['count'] > 5) {
             $this->warn("  (仅显示前5条，共 {$result['count']} 条)");
             foreach (array_slice($result['issues'], 0, 5) as $issue) {
-                $this->warn("  - " . json_encode($issue, JSON_UNESCAPED_UNICODE));
+                $this->warn('  - '.json_encode($issue, JSON_UNESCAPED_UNICODE));
             }
         }
     }
@@ -287,7 +284,7 @@ class IntegrityCheckCommand extends Command
     protected function generateReport(array $results): void
     {
         $exportDir = storage_path('app/maintenance_exports');
-        if (!is_dir($exportDir)) {
+        if (! is_dir($exportDir)) {
             mkdir($exportDir, 0755, true);
         }
 

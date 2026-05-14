@@ -8,9 +8,9 @@ use Illuminate\Support\Facades\App;
 
 /**
  * 审计日志特征
- * 
+ *
  * 在模型中使用此特征可自动记录创建、更新、删除操作
- * 
+ *
  * 使用方法：
  * class Invoice extends Model {
  *     use Auditable;
@@ -149,6 +149,7 @@ trait Auditable
     public function withoutAudit(): static
     {
         $this->disableAudit = true;
+
         return $this;
     }
 
@@ -158,6 +159,7 @@ trait Auditable
     public function withAudit(): static
     {
         $this->disableAudit = false;
+
         return $this;
     }
 
@@ -202,4 +204,3 @@ trait Auditable
         return $this->auditLogs()->where('action', $action)->get();
     }
 }
-

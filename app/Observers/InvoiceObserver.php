@@ -9,10 +9,10 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * Invoice Observer
- * 
+ *
  * 自动监听 Invoice 模型的 created、updated、deleted 事件
  * 在账单发生变化时，自动更新客户在对应门店的统计信息（总欠款、最后交易时间）
- * 
+ *
  * 特性：
  * - 事务安全：使用 DB::afterCommit() 确保在事务提交后才执行统计更新
  * - 防抖机制：同一请求内的多次更新只执行一次，避免重复计算
@@ -33,7 +33,7 @@ class InvoiceObserver
 
     /**
      * 监听账单创建事件
-     * 
+     *
      * 当新账单创建时，客户的总欠款增加，需要更新统计
      */
     public function created(Invoice $invoice): void
@@ -58,7 +58,7 @@ class InvoiceObserver
 
     /**
      * 监听账单删除事件
-     * 
+     *
      * 当账单删除时，客户的总欠款减少，需要更新统计
      */
     public function deleted(Invoice $invoice): void
@@ -68,12 +68,12 @@ class InvoiceObserver
 
     /**
      * 将客户和门店添加到待更新列表
-     * 
+     *
      * 使用 DB::afterCommit() 确保在事务提交后才执行统计更新
      * 使用静态数组收集待更新的客户，在请求结束时批量更新
-     * 
-     * @param int $customerId 客户 ID
-     * @param int $storeId 门店 ID
+     *
+     * @param  int  $customerId  客户 ID
+     * @param  int  $storeId  门店 ID
      */
     private function scheduleStatsUpdate(int $customerId, int $storeId): void
     {
@@ -82,14 +82,14 @@ class InvoiceObserver
             // 将客户和门店添加到待更新列表
             self::$pendingUpdates[] = [
                 'customer_id' => $customerId,
-                'store_id' => $storeId
+                'store_id' => $storeId,
             ];
 
             // 如果尚未注册 shutdown 函数，则注册
-            if (!self::$shutdownRegistered) {
+            if (! self::$shutdownRegistered) {
                 // 在长驻进程(如 Queue Worker) 中，shutdown_function 不会触发且会导致内存泄漏
                 // 因此支持 terminating 钩子，并在控制台直接执行
-                if (app()->runningInConsole() && !app()->runningUnitTests()) {
+                if (app()->runningInConsole() && ! app()->runningUnitTests()) {
                     // 队列等 console 环境尽早执行
                     self::processPendingUpdates();
                 } else {
@@ -102,7 +102,7 @@ class InvoiceObserver
 
     /**
      * 批量更新所有待更新的客户统计
-     * 
+     *
      * 在请求结束时执行，对所有待更新的客户进行去重后批量更新
      * 使用 try-catch 确保一个客户的更新失败不影响其他客户
      */
@@ -115,7 +115,7 @@ class InvoiceObserver
         // 去重：确保同一 (customer_id, store_id) 组合只更新一次
         $uniqueUpdates = [];
         foreach (self::$pendingUpdates as $update) {
-            $key = $update['customer_id'] . '_' . $update['store_id'];
+            $key = $update['customer_id'].'_'.$update['store_id'];
             $uniqueUpdates[$key] = $update;
         }
 
@@ -133,7 +133,7 @@ class InvoiceObserver
                 Log::error('Failed to sync customer stats in Observer', [
                     'customer_id' => $update['customer_id'],
                     'store_id' => $update['store_id'],
-                    'error' => $e->getMessage()
+                    'error' => $e->getMessage(),
                 ]);
             }
         }
@@ -143,4 +143,3 @@ class InvoiceObserver
         self::$shutdownRegistered = false;
     }
 }
-

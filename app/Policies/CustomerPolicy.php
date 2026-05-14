@@ -8,7 +8,7 @@ use Illuminate\Auth\Access\HandlesAuthorization;
 
 /**
  * 客户授权策略
- * 
+ *
  * 集中管理所有与 Customer 模型相关的权限检查逻辑
  */
 class CustomerPolicy
@@ -26,11 +26,11 @@ class CustomerPolicy
 
     /**
      * 查看单个客户详情
-     * 所有已认证用户都可以查看（但关联数据会被门店过滤）
+     * 管理员可以查看所有客户；普通用户只能查看其所属门店的客户
      */
     public function view(User $user, Customer $customer): bool
     {
-        return true;
+        return $user->isAdmin() || $user->belongsToStore($customer->store_id);
     }
 
     /**
@@ -44,11 +44,11 @@ class CustomerPolicy
 
     /**
      * 更新客户信息
-     * 所有已认证用户都可以更新
+     * 管理员可以更新所有客户；普通用户只能更新其所属门店的客户
      */
     public function update(User $user, Customer $customer): bool
     {
-        return true;
+        return $user->isAdmin() || $user->belongsToStore($customer->store_id);
     }
 
     /**

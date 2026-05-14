@@ -2,9 +2,9 @@
 
 namespace Database\Factories;
 
-use App\Models\PaymentDiscount;
-use App\Models\Payment;
 use App\Models\Invoice;
+use App\Models\Payment;
+use App\Models\PaymentDiscount;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -29,7 +29,7 @@ class PaymentDiscountFactory extends Factory
             'discount_type' => $this->faker->randomElement([
                 PaymentDiscount::TYPE_DISCOUNT,
                 PaymentDiscount::TYPE_PROMOTION,
-                PaymentDiscount::TYPE_WRITE_OFF
+                PaymentDiscount::TYPE_WRITE_OFF,
             ]),
             'reason' => $this->faker->sentence(),
             'approved_by' => User::factory(),

@@ -22,7 +22,7 @@ class AdminSeeder extends Seeder
 
         if ($existingUserWithAdminUsername) {
             // 如果其他用户占用了username="admin"，给他们分配一个新的username
-            $newUsername = 'user_' . $existingUserWithAdminUsername->id;
+            $newUsername = 'user_'.$existingUserWithAdminUsername->id;
             $existingUserWithAdminUsername->update(['username' => $newUsername]);
             Log::info("AdminSeeder: 用户ID {$existingUserWithAdminUsername->id} 的username从'admin'更改为'{$newUsername}'");
         }
@@ -44,9 +44,9 @@ class AdminSeeder extends Seeder
         $adminRole = Role::where('slug', 'admin')->first();
         if ($adminRole) {
             $admin->roles()->sync([$adminRole->id]);
-            Log::info("AdminSeeder: 已为管理员用户分配admin角色");
+            Log::info('AdminSeeder: 已为管理员用户分配admin角色');
         } else {
-            Log::warning("AdminSeeder: 未找到admin角色，请确保RoleSeeder已运行");
+            Log::warning('AdminSeeder: 未找到admin角色，请确保RoleSeeder已运行');
         }
     }
 }

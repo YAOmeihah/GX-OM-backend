@@ -2,8 +2,8 @@
 
 namespace Database\Factories;
 
-use App\Models\Invoice;
 use App\Models\Customer;
+use App\Models\Invoice;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
@@ -19,12 +19,11 @@ class InvoiceFactory extends Factory
     {
         $amount = fake()->randomFloat(2, 100, 5000);
         $paidAmount = fake()->optional(0.3)->randomFloat(2, 0, $amount);
-        $customer = Customer::factory()->create();
 
         return [
-            'invoice_number' => 'INV-' . date('Ymd') . '-' . Str::random(5),
-            'store_id' => $customer->store_id,
-            'customer_id' => $customer->id,
+            'invoice_number' => 'INV-'.date('Ymd').'-'.Str::random(5),
+            'customer_id' => Customer::factory(),
+            'store_id' => fn (array $attributes) => Customer::find($attributes['customer_id'])->store_id,
             'created_by' => User::factory(),
             'amount' => $amount,
             'paid_amount' => $paidAmount ?? 0,
@@ -39,7 +38,7 @@ class InvoiceFactory extends Factory
      */
     public function unpaid(): static
     {
-        return $this->state(fn(array $attributes) => [
+        return $this->state(fn (array $attributes) => [
             'paid_amount' => 0,
             'status' => 'unpaid',
         ]);
@@ -50,7 +49,7 @@ class InvoiceFactory extends Factory
      */
     public function paid(): static
     {
-        return $this->state(fn(array $attributes) => [
+        return $this->state(fn (array $attributes) => [
             'paid_amount' => $attributes['amount'],
             'status' => 'paid',
         ]);

@@ -7,7 +7,7 @@ use Illuminate\Validation\Rule;
 
 /**
  * 更新客户请求验证
- * 
+ *
  * 将 CustomerController::update() 中的验证逻辑抽离到此处
  */
 class UpdateCustomerRequest extends FormRequest
@@ -31,12 +31,12 @@ class UpdateCustomerRequest extends FormRequest
         $storeId = $customer?->store_id;
 
         return [
-            'name'    => [
+            'name' => [
                 'sometimes', 'required', 'string', 'max:255',
                 Rule::unique('customers')->where('store_id', $storeId)->ignore($customerId),
             ],
-            'phone'   => 'nullable|string|max:20',
-            'email'   => 'nullable|email|max:255',
+            'phone' => 'nullable|string|max:20',
+            'email' => 'nullable|email|max:255',
             'address' => 'nullable|string|max:255',
             'id_card' => 'nullable|string|max:18',
             'remarks' => 'nullable|string',
@@ -50,13 +50,13 @@ class UpdateCustomerRequest extends FormRequest
     {
         return [
             'name.required' => '客户姓名不能为空',
-            'name.max'      => '客户姓名最大255字符',
-            'name.unique'   => '该门店下已存在同名客户，请使用其他名称或沿用现有客户',
-            'phone.max'     => '手机号最大20字符',
-            'email.email'   => '邮箱格式不正确',
-            'email.max'     => '邮箱最大255字符',
-            'address.max'   => '地址最大255字符',
-            'id_card.max'   => '身份证号最大18字符',
+            'name.max' => '客户姓名最大255字符',
+            'name.unique' => '该门店下已存在同名客户，请使用其他名称或沿用现有客户',
+            'phone.max' => '手机号最大20字符',
+            'email.email' => '邮箱格式不正确',
+            'email.max' => '邮箱最大255字符',
+            'address.max' => '地址最大255字符',
+            'id_card.max' => '身份证号最大18字符',
         ];
     }
 }

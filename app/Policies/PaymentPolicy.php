@@ -8,7 +8,7 @@ use Illuminate\Auth\Access\HandlesAuthorization;
 
 /**
  * 还款记录授权策略
- * 
+ *
  * 集中管理所有与 Payment 模型相关的权限检查逻辑
  */
 class PaymentPolicy
@@ -36,15 +36,15 @@ class PaymentPolicy
     /**
      * 创建还款记录
      * 管理员或属于目标门店的用户可以创建
-     * 
-     * @param int|null $storeId 目标门店ID（从请求中获取）
+     *
+     * @param  int|null  $storeId  目标门店ID（从请求中获取）
      */
     public function create(User $user, ?int $storeId = null): bool
     {
         if ($storeId === null) {
             return false;
         }
-        
+
         return $user->isAdmin() || $user->belongsToStore($storeId);
     }
 
@@ -87,15 +87,15 @@ class PaymentPolicy
     /**
      * 批量自动分配
      * 管理员或店长可以执行
-     * 
-     * @param int|null $storeId 可选的门店限制
+     *
+     * @param  int|null  $storeId  可选的门店限制
      */
     public function batchAllocate(User $user, ?int $storeId = null): bool
     {
         if ($storeId === null) {
             return $user->isAdmin();
         }
-        
+
         return $user->isAdmin() || $user->isManagerOfStore($storeId);
     }
 
@@ -129,8 +129,8 @@ class PaymentPolicy
     /**
      * 查看优惠减免统计
      * 管理员或属于指定门店的用户可以查看
-     * 
-     * @param int|null $storeId 可选的门店ID
+     *
+     * @param  int|null  $storeId  可选的门店ID
      */
     public function viewDiscountStatistics(User $user, ?int $storeId = null): bool
     {
@@ -138,7 +138,7 @@ class PaymentPolicy
             // 如果没有指定门店，用户必须至少属于一个门店
             return $user->isAdmin() || $user->stores()->exists();
         }
-        
+
         return $user->isAdmin() || $user->belongsToStore($storeId);
     }
 }

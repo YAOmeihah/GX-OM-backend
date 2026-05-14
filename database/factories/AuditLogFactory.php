@@ -3,8 +3,8 @@
 namespace Database\Factories;
 
 use App\Models\AuditLog;
-use App\Models\User;
 use App\Models\Store;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -32,15 +32,16 @@ class AuditLogFactory extends Factory
             'auditable_type' => 'App\Models\Invoice',
             'auditable_id' => fake()->numberBetween(1, 1000),
             'auditable_label' => '账单',
-            'store_id' => Store::factory(),
-            'store_name' => fake()->company(),
+            'scope_type' => 'store',
+            'business_store_id' => Store::factory(),
+            'actor_store_id' => null,
             'old_values' => [],
             'new_values' => [],
             'changed_fields' => [],
             'ip_address' => fake()->ipv4(),
             'user_agent' => fake()->userAgent(),
             'request_method' => fake()->randomElement(['GET', 'POST', 'PUT', 'DELETE']),
-            'request_url' => '/api/' . fake()->slug(),
+            'request_url' => '/api/'.fake()->slug(),
             'description' => fake()->sentence(),
             'metadata' => [],
             'is_success' => true,
@@ -53,7 +54,7 @@ class AuditLogFactory extends Factory
      */
     public function critical(): static
     {
-        return $this->state(fn(array $attributes) => [
+        return $this->state(fn (array $attributes) => [
             'action' => 'delete',
             'action_label' => '删除',
         ]);

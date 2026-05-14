@@ -2,20 +2,20 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
-use App\Models\Store;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
+use App\Models\Store;
 use App\Models\User;
-use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
+use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 /**
  * 维护功能测试数据填充器
- * 
+ *
  * 创建以下测试数据:
  * 1. 超过3个月的已结清账单 (可被历史清理)
  * 2. 孤立的账单明细 (父账单不存在)
@@ -36,20 +36,23 @@ class MaintenanceTestDataSeeder extends Seeder
 
         // 获取必要的关联数据
         $store = Store::first();
-        if (!$store) {
+        if (! $store) {
             $this->command->error('请先创建门店数据');
+
             return;
         }
 
         $customer = Customer::first();
-        if (!$customer) {
+        if (! $customer) {
             $this->command->error('请先创建客户数据');
+
             return;
         }
 
         $user = User::first();
-        if (!$user) {
+        if (! $user) {
             $this->command->error('请先创建用户数据');
+
             return;
         }
 
@@ -61,7 +64,7 @@ class MaintenanceTestDataSeeder extends Seeder
             $amount = 1000 + ($i * 100);
 
             $invoice = Invoice::create([
-                'invoice_number' => 'TEST-OLD-' . str_pad($i, 4, '0', STR_PAD_LEFT),
+                'invoice_number' => 'TEST-OLD-'.str_pad($i, 4, '0', STR_PAD_LEFT),
                 'customer_id' => $customer->id,
                 'store_id' => $store->id,
                 'created_by' => $user->id,
@@ -75,7 +78,7 @@ class MaintenanceTestDataSeeder extends Seeder
             // 创建账单明细
             InvoiceItem::create([
                 'invoice_id' => $invoice->id,
-                'item_name' => '测试商品 ' . $i,
+                'item_name' => '测试商品 '.$i,
                 'quantity' => 1,
                 'unit_price' => $amount,
                 'subtotal' => $amount,
@@ -83,7 +86,7 @@ class MaintenanceTestDataSeeder extends Seeder
 
             // 创建对应的还款
             $payment = Payment::create([
-                'payment_number' => 'TEST-PAY-' . str_pad($i, 4, '0', STR_PAD_LEFT),
+                'payment_number' => 'TEST-PAY-'.str_pad($i, 4, '0', STR_PAD_LEFT),
                 'customer_id' => $customer->id,
                 'store_id' => $store->id,
                 'received_by' => $user->id,
@@ -117,7 +120,7 @@ class MaintenanceTestDataSeeder extends Seeder
         for ($i = 1; $i <= 3; $i++) {
             DB::table('invoice_items')->insert([
                 'invoice_id' => $orphanInvoiceId + $i,
-                'item_name' => '孤立商品 ' . $i,
+                'item_name' => '孤立商品 '.$i,
                 'quantity' => 1,
                 'unit_price' => 500,
                 'subtotal' => 500,

@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class ApiController extends Controller
@@ -77,7 +76,7 @@ class ApiController extends Controller
      */
     protected function getUserStoreIds(): array
     {
-        if (!Auth::check()) {
+        if (! Auth::check()) {
             return [];
         }
 
@@ -95,7 +94,7 @@ class ApiController extends Controller
      */
     protected function hasStoreAccess(): bool
     {
-        return !empty($this->getUserStoreIds());
+        return ! empty($this->getUserStoreIds());
     }
 
     /**
@@ -116,7 +115,7 @@ class ApiController extends Controller
     /**
      * 返回成功响应
      */
-    protected function successResponse($data = null, string $message = null, int $code = 200): \Illuminate\Http\JsonResponse
+    protected function successResponse($data = null, ?string $message = null, int $code = 200): \Illuminate\Http\JsonResponse
     {
         $response = ['success' => true];
 
@@ -133,16 +132,16 @@ class ApiController extends Controller
 
     /**
      * 返回错误响应
-     * 
-     * @param string $message 错误消息
-     * @param int $code HTTP 状态码
-     * @param array|null $data 可选的附加数据
+     *
+     * @param  string  $message  错误消息
+     * @param  int  $code  HTTP 状态码
+     * @param  array|null  $data  可选的附加数据
      */
     protected function errorResponse(string $message, int $code = 400, ?array $data = null): \Illuminate\Http\JsonResponse
     {
         $response = [
             'success' => false,
-            'message' => $message
+            'message' => $message,
         ];
 
         if ($data !== null) {

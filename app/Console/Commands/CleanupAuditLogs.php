@@ -47,18 +47,19 @@ class CleanupAuditLogs extends Command
 
         if ($retentionDays <= 0) {
             $this->info('审计日志保留天数设置为0，不执行清理。');
+
             return Command::SUCCESS;
         }
 
         $normalCutoffDate = Carbon::now()->subDays($retentionDays);
         $criticalCutoffDate = Carbon::now()->subDays($criticalRetentionDays);
 
-        $this->info("=== 审计日志清理工具 ===");
+        $this->info('=== 审计日志清理工具 ===');
         $this->info("普通操作保留: {$retentionDays} 天 (截止: {$normalCutoffDate->toDateString()})");
         $this->info("关键操作保留: {$criticalRetentionDays} 天 (截止: {$criticalCutoffDate->toDateString()})");
-        $this->info("关键操作类型: " . implode(', ', $this->criticalActions));
+        $this->info('关键操作类型: '.implode(', ', $this->criticalActions));
         if ($isDryRun) {
-            $this->warn("[模拟运行模式]");
+            $this->warn('[模拟运行模式]');
         }
         $this->newLine();
 
@@ -75,10 +76,11 @@ class CleanupAuditLogs extends Command
 
         if ($totalCount === 0) {
             $this->info('没有需要清理的审计日志。');
+
             return Command::SUCCESS;
         }
 
-        $this->info("待清理统计:");
+        $this->info('待清理统计:');
         $this->table(
             ['类型', '数量'],
             [
@@ -91,6 +93,7 @@ class CleanupAuditLogs extends Command
 
         if ($isDryRun) {
             $this->info("[模拟运行] 将删除 {$totalCount} 条审计日志记录。");
+
             return Command::SUCCESS;
         }
 
@@ -100,13 +103,13 @@ class CleanupAuditLogs extends Command
         }
 
         // 执行清理
-        $this->info("正在清理审计日志...");
+        $this->info('正在清理审计日志...');
 
         $deleted = 0;
         $batchSize = 1000;
 
         // 清理普通操作
-        $this->info("清理普通操作日志...");
+        $this->info('清理普通操作日志...');
         $bar = $this->output->createProgressBar($normalCount);
         $bar->start();
 
@@ -128,7 +131,7 @@ class CleanupAuditLogs extends Command
         $this->newLine();
 
         // 清理关键操作
-        $this->info("清理关键操作日志...");
+        $this->info('清理关键操作日志...');
         $bar2 = $this->output->createProgressBar($criticalCount);
         $bar2->start();
 
@@ -159,10 +162,10 @@ class CleanupAuditLogs extends Command
      */
     protected function archiveLogs(Carbon $normalCutoffDate, Carbon $criticalCutoffDate): void
     {
-        $this->info("正在归档日志...");
+        $this->info('正在归档日志...');
 
         $exportDir = storage_path('app/maintenance_exports/audit_archives');
-        if (!is_dir($exportDir)) {
+        if (! is_dir($exportDir)) {
             mkdir($exportDir, 0755, true);
         }
 

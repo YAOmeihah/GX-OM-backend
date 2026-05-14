@@ -95,7 +95,7 @@ class InvoiceController extends ApiController
         $query = Invoice::query();
 
         // 如果不是管理员，只能查看自己所属门店的账单
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             $storeIds = $user->stores->pluck('id')->toArray();
             $query->whereIn('store_id', $storeIds);
         }
@@ -104,7 +104,7 @@ class InvoiceController extends ApiController
         if ($request->has('store_id')) {
             $storeId = $request->input('store_id');
             // 验证用户是否有权限查看该门店的账单
-            if (!$this->isAdmin() && !$this->belongsToStore($storeId)) {
+            if (! $this->isAdmin() && ! $this->belongsToStore($storeId)) {
                 return $this->errorResponse('权限不足', 403);
             }
             $query->where('store_id', $storeId);
@@ -131,7 +131,7 @@ class InvoiceController extends ApiController
         }
 
         if ($request->has('end_date')) {
-            $query->where('created_at', '<=', $request->input('end_date') . ' 23:59:59');
+            $query->where('created_at', '<=', $request->input('end_date').' 23:59:59');
         }
 
         // 金额范围筛选
@@ -161,6 +161,7 @@ class InvoiceController extends ApiController
         $invoices->getCollection()->transform(function ($invoice) {
             $invoice->total_discount_amount = $invoice->total_discount_amount;
             $invoice->actual_remaining_amount = $invoice->actual_remaining_amount;
+
             return $invoice;
         });
 
@@ -250,7 +251,7 @@ class InvoiceController extends ApiController
 
         // 生成唯一账单号
         $store = Store::find($validated['store_id']);
-        $invoiceNumber = $store->code . '-' . date('Ymd') . '-' . Str::random(5);
+        $invoiceNumber = $store->code.'-'.date('Ymd').'-'.Str::random(5);
 
         $invoice = null;
 
@@ -325,13 +326,14 @@ class InvoiceController extends ApiController
             try {
                 app(\App\Services\AuditLogService::class)->logCreate($invoice);
             } catch (\Exception $e) {
-                \Log::error('手动记录审计日志失败: ' . $e->getMessage());
+                \Log::error('手动记录审计日志失败: '.$e->getMessage());
             }
 
             return $this->successResponse($invoice, '账单创建成功', 201);
         } catch (\Exception $e) {
             DB::rollBack();
-            return $this->errorResponse('账单创建失败：' . $e->getMessage(), 500);
+
+            return $this->errorResponse('账单创建失败：'.$e->getMessage(), 500);
         }
     }
 
@@ -438,7 +440,7 @@ class InvoiceController extends ApiController
             'paymentAllocations.payment',
             'paymentAllocations.allocatedBy:id,name',
             'attachments',
-            'discounts.payment'  // 加载减免记录
+            'discounts.payment',  // 加载减免记录
         ])->findOrFail($id);
 
         // 使用 Policy 进行权限检查
@@ -523,14 +525,14 @@ class InvoiceController extends ApiController
         // 获取更新前的原始数据用于审计（含明细快照，带 line_uid）
         $invoice->loadMissing('items');
         $originalData = array_merge($invoice->toArray(), [
-            'items' => $invoice->items->map(fn($item) => [
-                'line_uid'         => $item->line_uid,
-                'item_name'        => $item->item_name,
+            'items' => $invoice->items->map(fn ($item) => [
+                'line_uid' => $item->line_uid,
+                'item_name' => $item->item_name,
                 'item_description' => $item->item_description,
-                'quantity'         => $item->quantity,
-                'unit_price'       => $item->unit_price,
-                'subtotal'         => $item->subtotal,
-                'sort_order'       => $item->sort_order,
+                'quantity' => $item->quantity,
+                'unit_price' => $item->unit_price,
+                'subtotal' => $item->subtotal,
+                'sort_order' => $item->sort_order,
             ])->toArray(),
         ]);
 
@@ -549,11 +551,11 @@ class InvoiceController extends ApiController
 
                     // 按 line_uid 建旧明细索引
                     $existingItems = $invoice->items->keyBy('line_uid');
-                    $incomingUids  = [];
+                    $incomingUids = [];
 
                     foreach ($validated['items'] as $index => $itemData) {
-                        $qty      = $itemData['quantity'];
-                        $price    = $itemData['unit_price'];
+                        $qty = $itemData['quantity'];
+                        $price = $itemData['unit_price'];
                         $subtotal = $qty * $price;
                         $totalAmount += $subtotal;
 
@@ -563,24 +565,24 @@ class InvoiceController extends ApiController
                             // 更新已有明细
                             $incomingUids[] = $lineUid;
                             $existingItems[$lineUid]->update([
-                                'item_name'        => array_key_exists('item_name', $itemData)
+                                'item_name' => array_key_exists('item_name', $itemData)
                                     ? $itemData['item_name']
                                     : $existingItems[$lineUid]->item_name,
                                 'item_description' => array_key_exists('item_description', $itemData)
                                     ? $itemData['item_description']
                                     : $existingItems[$lineUid]->item_description,
-                                'quantity'         => $qty,
-                                'unit_price'       => $price,
-                                'sort_order'       => $itemData['sort_order'] ?? $index,
+                                'quantity' => $qty,
+                                'unit_price' => $price,
+                                'sort_order' => $itemData['sort_order'] ?? $index,
                             ]);
                         } else {
                             // 新增明细（line_uid 由模型 creating 事件自动生成）
                             $newItem = $invoice->items()->create([
-                                'item_name'        => $itemData['item_name'] ?? null,
+                                'item_name' => $itemData['item_name'] ?? null,
                                 'item_description' => $itemData['item_description'] ?? null,
-                                'quantity'         => $qty,
-                                'unit_price'       => $price,
-                                'sort_order'       => $itemData['sort_order'] ?? $index,
+                                'quantity' => $qty,
+                                'unit_price' => $price,
+                                'sort_order' => $itemData['sort_order'] ?? $index,
                             ]);
                             $incomingUids[] = $newItem->line_uid;
                         }
@@ -588,20 +590,20 @@ class InvoiceController extends ApiController
 
                     // 删除不在新列表里的旧明细
                     $existingItems->each(function ($item) use ($incomingUids) {
-                        if (!in_array($item->line_uid, $incomingUids)) {
+                        if (! in_array($item->line_uid, $incomingUids)) {
                             $item->delete();
                         }
                     });
 
-                } elseif (isset($validated['amount']) && !$invoice->hasItems()) {
+                } elseif (isset($validated['amount']) && ! $invoice->hasItems()) {
                     $shouldUpdateItems = true;
                     $totalAmount = $validated['amount'];
                     $invoice->items()->create([
-                        'item_name'        => '账单项目',
+                        'item_name' => '账单项目',
                         'item_description' => $validated['description'] ?? null,
-                        'quantity'         => 1,
-                        'unit_price'       => $validated['amount'],
-                        'sort_order'       => 0,
+                        'quantity' => 1,
+                        'unit_price' => $validated['amount'],
+                        'sort_order' => 0,
                     ]);
                 }
 
@@ -630,25 +632,26 @@ class InvoiceController extends ApiController
             // 手动记录一条完整的更新审计日志
             try {
                 $newData = array_merge($invoice->toArray(), [
-                    'items' => $invoice->items->map(fn($item) => [
-                        'line_uid'         => $item->line_uid,
-                        'item_name'        => $item->item_name,
+                    'items' => $invoice->items->map(fn ($item) => [
+                        'line_uid' => $item->line_uid,
+                        'item_name' => $item->item_name,
                         'item_description' => $item->item_description,
-                        'quantity'         => $item->quantity,
-                        'unit_price'       => $item->unit_price,
-                        'subtotal'         => $item->subtotal,
-                        'sort_order'       => $item->sort_order,
+                        'quantity' => $item->quantity,
+                        'unit_price' => $item->unit_price,
+                        'subtotal' => $item->subtotal,
+                        'sort_order' => $item->sort_order,
                     ])->toArray(),
                 ]);
                 app(\App\Services\AuditLogService::class)->logUpdate($invoice, $originalData, null, $newData);
             } catch (\Exception $e) {
-                \Log::error('手动记录审计日志失败: ' . $e->getMessage());
+                \Log::error('手动记录审计日志失败: '.$e->getMessage());
             }
 
             return $this->successResponse($invoice, '账单更新成功');
         } catch (\Exception $e) {
             DB::rollBack();
-            return $this->errorResponse('账单更新失败：' . $e->getMessage(), 500);
+
+            return $this->errorResponse('账单更新失败：'.$e->getMessage(), 500);
         }
     }
 
@@ -700,7 +703,7 @@ class InvoiceController extends ApiController
         try {
             app(\App\Services\AuditLogService::class)->logDelete($invoice);
         } catch (\Exception $e) {
-            \Log::error('手动记录删除审计日志失败: ' . $e->getMessage());
+            \Log::error('手动记录删除审计日志失败: '.$e->getMessage());
         }
 
         // 使用事务确保数据一致性

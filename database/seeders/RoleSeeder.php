@@ -3,7 +3,6 @@
 namespace Database\Seeders;
 
 use App\Models\Role;
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
 class RoleSeeder extends Seeder
@@ -19,20 +18,20 @@ class RoleSeeder extends Seeder
                 'name' => '系统管理员',
                 'slug' => 'admin',
                 'description' => '拥有系统所有权限',
-                'is_system' => true
+                'is_system' => true,
             ],
             [
                 'name' => '店长',
                 'slug' => 'store_owner',
                 'description' => '在其所属门店中拥有完全管理权限',
-                'is_system' => true
+                'is_system' => true,
             ],
             [
                 'name' => '店员',
                 'slug' => 'store_staff',
                 'description' => '处理日常业务',
-                'is_system' => true
-            ]
+                'is_system' => true,
+            ],
         ];
 
         foreach ($roles as $role) {
@@ -42,4 +41,4 @@ class RoleSeeder extends Seeder
             );
         }
     }
-} 
+}

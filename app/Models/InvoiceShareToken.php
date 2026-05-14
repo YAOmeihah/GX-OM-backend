@@ -22,6 +22,7 @@ class InvoiceShareToken extends Model
     ];
 
     const TYPE_FIXED = 'fixed';
+
     const TYPE_DYNAMIC = 'dynamic';
 
     protected $casts = [

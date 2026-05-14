@@ -1,19 +1,20 @@
 <?php
+
 // 临时脚本：生成测试分享 token
 
-require __DIR__ . '/vendor/autoload.php';
-$app = require_once __DIR__ . '/bootstrap/app.php';
+require __DIR__.'/vendor/autoload.php';
+$app = require_once __DIR__.'/bootstrap/app.php';
 $app->make('Illuminate\Contracts\Console\Kernel')->bootstrap();
 
 $invoice = \App\Models\Invoice::first();
 
-if (!$invoice) {
+if (! $invoice) {
     echo "没有找到任何账单\n";
     exit(1);
 }
 
 $user = \App\Models\User::first();
-if (!$user) {
+if (! $user) {
     echo "没有找到任何用户\n";
     exit(1);
 }
@@ -30,7 +31,7 @@ $token = \App\Models\InvoiceShareToken::create([
 echo "====================================\n";
 echo "测试 Token 生成成功！\n";
 echo "====================================\n";
-echo "Token: " . $token->token . "\n";
-echo "小程序路径: /pages/bill/index?token=" . $token->token . "\n";
-echo "过期时间: " . $token->expires_at . "\n";
+echo 'Token: '.$token->token."\n";
+echo '小程序路径: /pages/bill/index?token='.$token->token."\n";
+echo '过期时间: '.$token->expires_at."\n";
 echo "====================================\n";

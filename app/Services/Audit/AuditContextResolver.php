@@ -16,11 +16,10 @@ class AuditContextResolver
     /**
      * 解析审计上下文
      *
-     * @param string $action 操作类型
-     * @param Model|null $model 操作的模型实例
-     * @param User|null $operator 操作者（可能为null，如系统任务）
-     * @param Request|null $request 请求对象
-     * @return AuditContext
+     * @param  string  $action  操作类型
+     * @param  Model|null  $model  操作的模型实例
+     * @param  User|null  $operator  操作者（可能为null，如系统任务）
+     * @param  Request|null  $request  请求对象
      */
     public function resolve(
         string $action,
@@ -89,6 +88,7 @@ class AuditContextResolver
         // 如果配置了自定义解析器，使用解析器
         if (isset($mixedConfig['resolver'])) {
             $resolver = app($mixedConfig['resolver']);
+
             return $resolver->resolve($model);
         }
 
@@ -153,7 +153,7 @@ class AuditContextResolver
     private function getActorStoreId(?User $operator, ?Request $request): ?int
     {
         // 如果没有操作者（系统任务），返回 null
-        if (!$operator) {
+        if (! $operator) {
             return null;
         }
 
@@ -164,6 +164,7 @@ class AuditContextResolver
 
         // 从用户的第一个关联门店获取
         $firstStore = $operator->stores()->first();
+
         return $firstStore?->id;
     }
 }

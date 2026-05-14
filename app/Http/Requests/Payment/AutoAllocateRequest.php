@@ -8,7 +8,7 @@ use Illuminate\Validation\Rule;
 
 /**
  * 自动分配请求验证
- * 
+ *
  * 将 PaymentController::autoAllocate() 中的验证逻辑抽离到此处
  */
 class AutoAllocateRequest extends FormRequest
@@ -20,11 +20,12 @@ class AutoAllocateRequest extends FormRequest
     {
         $payment = $this->getPayment();
 
-        if (!$payment) {
+        if (! $payment) {
             return false;
         }
 
         $user = $this->user();
+
         return $user->isAdmin() || $user->isManagerOfStore($payment->store_id);
     }
 

@@ -6,12 +6,13 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * 添加 invoices 表联合索引
- * 
+ *
  * 优化客户列表查询性能：
  * - 客户欠款统计子查询使用 customer_id + store_id + status 过滤
  * - 添加联合索引可避免全表扫描，将查询时间从 O(n) 降至 O(log n)
  */
-return new class extends Migration {
+return new class extends Migration
+{
     /**
      * Run the migrations.
      */

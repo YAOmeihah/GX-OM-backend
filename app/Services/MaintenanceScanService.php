@@ -2,20 +2,19 @@
 
 namespace App\Services;
 
-use App\Models\Invoice;
-use App\Models\Payment;
-use App\Models\InvoiceItem;
-use App\Models\PaymentAllocation;
-use App\Models\PaymentDiscount;
 use App\Models\Attachment;
 use App\Models\AuditLog;
+use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\InvoiceShareToken;
+use App\Models\Payment;
+use App\Models\PaymentAllocation;
+use App\Models\PaymentDiscount;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Illuminate\Pagination\LengthAwarePaginator;
 
 class MaintenanceScanService
 {
@@ -53,7 +52,7 @@ class MaintenanceScanService
             $invoiceQuery = Invoice::where('status', 'paid')
                 ->where('created_at', '<', $cutoffDate);
 
-            if (!empty($excludeStores)) {
+            if (! empty($excludeStores)) {
                 $invoiceQuery->whereNotIn('store_id', $excludeStores);
             }
 
@@ -103,7 +102,7 @@ class MaintenanceScanService
                         ->where('invoices.status', '!=', 'paid');
                 });
 
-            if (!empty($excludeStores)) {
+            if (! empty($excludeStores)) {
                 $paymentQuery->whereNotIn('store_id', $excludeStores);
             }
 
@@ -551,7 +550,7 @@ class MaintenanceScanService
     {
         $scanData = cache()->get("maintenance_scan:{$scanId}");
 
-        if (!$scanData) {
+        if (! $scanData) {
             throw new \InvalidArgumentException('扫描结果已过期，请重新扫描');
         }
 
@@ -574,8 +573,8 @@ class MaintenanceScanService
         $allItems = collect($scanData['items'] ?? []);
 
         // 如果指定了选定项，则只处理选定的
-        if (!empty($selectedIds)) {
-            $allItems = $allItems->filter(fn($item) => in_array($item['id'], $selectedIds));
+        if (! empty($selectedIds)) {
+            $allItems = $allItems->filter(fn ($item) => in_array($item['id'], $selectedIds));
         }
 
         $exportFile = null;
@@ -617,7 +616,7 @@ class MaintenanceScanService
 
         DB::transaction(function () use ($normalCutoffDate, $criticalCutoffDate, $selectedIds, $exportBeforeDelete, &$deleted, &$exportFile) {
             // 如果选择了特定ID，只删除选中的
-            if (!empty($selectedIds)) {
+            if (! empty($selectedIds)) {
                 if ($exportBeforeDelete) {
                     $logsToExport = AuditLog::whereIn('id', $selectedIds)->get();
                     $exportFile = $this->exportData('audit_cleanup', collect($logsToExport->toArray()));
@@ -676,7 +675,7 @@ class MaintenanceScanService
     protected function exportData(string $type, Collection $items): string
     {
         $exportDir = storage_path('app/maintenance_exports');
-        if (!is_dir($exportDir)) {
+        if (! is_dir($exportDir)) {
             mkdir($exportDir, 0755, true);
         }
 
@@ -792,7 +791,7 @@ class MaintenanceScanService
                 }
                 break;
 
-            // 完整性问题修复（而非删除）
+                // 完整性问题修复（而非删除）
             case 'invoice_amount_mismatch':
                 $invoice = Invoice::find($item['id']);
                 if ($invoice && isset($item['expected_value'])) {
@@ -876,7 +875,7 @@ class MaintenanceScanService
             }
         } catch (\Exception $e) {
             // 文件删除失败不影响数据库记录删除
-            \Log::warning("Failed to delete attachment file: " . $e->getMessage());
+            \Log::warning('Failed to delete attachment file: '.$e->getMessage());
         }
     }
 
@@ -897,6 +896,7 @@ class MaintenanceScanService
         if ($settledAmount > 0) {
             return 'partially_paid';
         }
+
         return 'unpaid';
     }
 
@@ -929,7 +929,7 @@ class MaintenanceScanService
             return [
                 'id' => $token->id,
                 'type' => 'share_token',
-                'identifier' => substr($token->token, 0, 8) . '...',
+                'identifier' => substr($token->token, 0, 8).'...',
                 'customer_name' => $token->customer?->name ?? '未知',
                 'store_name' => $token->store?->name ?? '未知',
                 'created_by' => $token->createdBy?->name ?? '系统',

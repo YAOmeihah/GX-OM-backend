@@ -2,27 +2,34 @@
 
 namespace Tests\Feature;
 
-use Tests\TestCase;
-use Tests\Traits\CreatesTestUsers;
-use App\Models\User;
-use App\Models\Store;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceShareToken;
+use App\Models\Store;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
+use Tests\TestCase;
+use Tests\Traits\CreatesTestUsers;
 
 class InvoiceShareApiTest extends TestCase
 {
-    use RefreshDatabase, CreatesTestUsers;
+    use CreatesTestUsers, RefreshDatabase;
 
     protected User $admin;
+
     protected User $storeOwner;
+
     protected Store $store;
+
     protected Store $store2;
+
     protected Customer $customer;
+
     protected Invoice $invoice1;
+
     protected Invoice $invoice2;
+
     protected Invoice $invoice3;
 
     protected function setUp(): void
@@ -41,7 +48,7 @@ class InvoiceShareApiTest extends TestCase
         $this->storeOwner = $this->createStoreOwner([], $this->store);
 
         // 创建测试客户
-        $this->customer = Customer::factory()->create(['name' => '张三', 'phone' => '13912345678']);
+        $this->customer = Customer::factory()->create(['name' => '张三', 'phone' => '13912345678', 'store_id' => $this->store->id]);
 
         // 创建测试账单
         $this->invoice1 = Invoice::factory()->create([

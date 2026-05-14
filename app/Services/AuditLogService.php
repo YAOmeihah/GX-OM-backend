@@ -109,7 +109,7 @@ class AuditLogService
             $model->load('items');  // 确保加载明细
             $newValues = $model->toArray();
 
-            $builder = new InvoiceAuditDiffBuilder();
+            $builder = new InvoiceAuditDiffBuilder;
             $changePayload = $builder->buildForCreate(
                 $newValues,
                 $model->invoice_number,
@@ -148,7 +148,7 @@ class AuditLogService
 
         // 账单更新走结构化 diff 路径
         if ($model instanceof \App\Models\Invoice) {
-            $builder       = new InvoiceAuditDiffBuilder();
+            $builder = new InvoiceAuditDiffBuilder;
             $changePayload = $builder->build(
                 $oldValues,
                 $newValues,
@@ -188,7 +188,7 @@ class AuditLogService
         // 账单删除走结构化 diff 路径
         if ($model instanceof \App\Models\Invoice) {
             // 确保加载明细关系
-            if (!$model->relationLoaded('items')) {
+            if (! $model->relationLoaded('items')) {
                 $model->load('items');
             }
 
@@ -198,10 +198,10 @@ class AuditLogService
             \Log::debug('Invoice delete - items count', [
                 'invoice_id' => $model->id,
                 'items_in_array' => count($oldValues['items'] ?? []),
-                'items_relation' => $model->items->count()
+                'items_relation' => $model->items->count(),
             ]);
 
-            $builder = new InvoiceAuditDiffBuilder();
+            $builder = new InvoiceAuditDiffBuilder;
             $changePayload = $builder->buildForDelete(
                 $oldValues,
                 $model->invoice_number,
@@ -252,6 +252,7 @@ class AuditLogService
     public function logLogout(?User $user = null): AuditLog
     {
         $user = $user ?? Auth::user();
+
         return $this->log(
             AuditLog::ACTION_LOGOUT,
             $user,
@@ -437,13 +438,13 @@ class AuditLogService
         $actor = Auth::user()?->name ?? '系统';
 
         return match (get_class($model)) {
-            \App\Models\Invoice::class        => $this->describeInvoice($action, $model, $actor, $oldValues, $newValues),
-            \App\Models\Payment::class        => $this->describePayment($action, $model, $actor),
-            \App\Models\Customer::class       => $this->describeCustomer($action, $model, $actor),
-            \App\Models\Store::class          => $this->describeStore($action, $model, $actor),
-            \App\Models\User::class           => $this->describeUser($action, $model, $actor),
+            \App\Models\Invoice::class => $this->describeInvoice($action, $model, $actor, $oldValues, $newValues),
+            \App\Models\Payment::class => $this->describePayment($action, $model, $actor),
+            \App\Models\Customer::class => $this->describeCustomer($action, $model, $actor),
+            \App\Models\Store::class => $this->describeStore($action, $model, $actor),
+            \App\Models\User::class => $this->describeUser($action, $model, $actor),
             \App\Models\PaymentAllocation::class => $this->describeAllocation($action, $model, $actor),
-            \App\Models\PaymentDiscount::class   => $this->describeDiscount($action, $model, $actor),
+            \App\Models\PaymentDiscount::class => $this->describeDiscount($action, $model, $actor),
             default => $this->describeGeneric($action, $model, $actor),
         };
     }
@@ -451,21 +452,21 @@ class AuditLogService
     private function describeInvoice(string $action, Model $model, string $actor, ?array $oldValues = null, ?array $newValues = null): string
     {
         $customer = $this->getCustomerName($model);
-        $amount   = number_format((float) $model->getAttribute('amount'), 2);
-        $no       = $model->getAttribute('invoice_number') ?? "#{$model->getKey()}";
+        $amount = number_format((float) $model->getAttribute('amount'), 2);
+        $no = $model->getAttribute('invoice_number') ?? "#{$model->getKey()}";
 
         $baseDescription = match ($action) {
             AuditLog::ACTION_CREATE => "{$actor} 给客户 {$customer} 创建了一笔 ¥{$amount} 的账单（{$no}）",
             AuditLog::ACTION_UPDATE => "{$actor} 修改了客户 {$customer} 的账单 {$no}（¥{$amount}）",
             AuditLog::ACTION_DELETE => "{$actor} 删除了客户 {$customer} 的账单 {$no}（¥{$amount}）",
-            default                 => $this->describeGeneric($action, $model, $actor),
+            default => $this->describeGeneric($action, $model, $actor),
         };
 
         // 对于更新操作，分析明细项变化
         if ($action === AuditLog::ACTION_UPDATE && $oldValues && $newValues) {
             $itemsChanges = $this->analyzeItemsChanges($oldValues, $newValues);
-            if (!empty($itemsChanges)) {
-                $baseDescription .= '，' . implode('；', $itemsChanges);
+            if (! empty($itemsChanges)) {
+                $baseDescription .= '，'.implode('；', $itemsChanges);
             }
         }
 
@@ -475,14 +476,14 @@ class AuditLogService
     private function describePayment(string $action, Model $model, string $actor): string
     {
         $customer = $this->getCustomerName($model);
-        $amount   = number_format((float) $model->getAttribute('amount'), 2);
-        $no       = $model->getAttribute('payment_number') ?? "#{$model->getKey()}";
+        $amount = number_format((float) $model->getAttribute('amount'), 2);
+        $no = $model->getAttribute('payment_number') ?? "#{$model->getKey()}";
 
         return match ($action) {
             AuditLog::ACTION_CREATE => "{$actor} 为客户 {$customer} 录入了一笔 ¥{$amount} 的还款（{$no}）",
             AuditLog::ACTION_UPDATE => "{$actor} 修改了客户 {$customer} 的还款记录 {$no}（¥{$amount}）",
             AuditLog::ACTION_DELETE => "{$actor} 删除了客户 {$customer} 的还款记录 {$no}（¥{$amount}）",
-            default                 => $this->describeGeneric($action, $model, $actor),
+            default => $this->describeGeneric($action, $model, $actor),
         };
     }
 
@@ -494,7 +495,7 @@ class AuditLogService
             AuditLog::ACTION_CREATE => "{$actor} 新增了客户 {$name}",
             AuditLog::ACTION_UPDATE => "{$actor} 修改了客户 {$name} 的信息",
             AuditLog::ACTION_DELETE => "{$actor} 删除了客户 {$name}",
-            default                 => $this->describeGeneric($action, $model, $actor),
+            default => $this->describeGeneric($action, $model, $actor),
         };
     }
 
@@ -506,7 +507,7 @@ class AuditLogService
             AuditLog::ACTION_CREATE => "{$actor} 创建了门店 {$name}",
             AuditLog::ACTION_UPDATE => "{$actor} 修改了门店 {$name} 的信息",
             AuditLog::ACTION_DELETE => "{$actor} 删除了门店 {$name}",
-            default                 => $this->describeGeneric($action, $model, $actor),
+            default => $this->describeGeneric($action, $model, $actor),
         };
     }
 
@@ -518,39 +519,39 @@ class AuditLogService
             AuditLog::ACTION_CREATE => "{$actor} 创建了用户 {$name}",
             AuditLog::ACTION_UPDATE => "{$actor} 修改了用户 {$name} 的信息",
             AuditLog::ACTION_DELETE => "{$actor} 删除了用户 {$name}",
-            default                 => $this->describeGeneric($action, $model, $actor),
+            default => $this->describeGeneric($action, $model, $actor),
         };
     }
 
     private function describeAllocation(string $action, Model $model, string $actor): string
     {
-        $amount    = number_format((float) $model->getAttribute('allocated_amount'), 2);
+        $amount = number_format((float) $model->getAttribute('allocated_amount'), 2);
         $invoiceId = $model->getAttribute('invoice_id');
         $paymentId = $model->getAttribute('payment_id');
 
         return match ($action) {
             AuditLog::ACTION_CREATE => "{$actor} 将还款#{$paymentId} 的 ¥{$amount} 分配至账单#{$invoiceId}",
             AuditLog::ACTION_DELETE => "{$actor} 撤销了还款#{$paymentId} 对账单#{$invoiceId} 的 ¥{$amount} 分配",
-            default                 => $this->describeGeneric($action, $model, $actor),
+            default => $this->describeGeneric($action, $model, $actor),
         };
     }
 
     private function describeDiscount(string $action, Model $model, string $actor): string
     {
-        $amount    = number_format((float) $model->getAttribute('discount_amount'), 2);
+        $amount = number_format((float) $model->getAttribute('discount_amount'), 2);
         $invoiceId = $model->getAttribute('invoice_id');
 
         return match ($action) {
             AuditLog::ACTION_CREATE => "{$actor} 对账单#{$invoiceId} 应用了 ¥{$amount} 的优惠减免",
             AuditLog::ACTION_DELETE => "{$actor} 撤销了账单#{$invoiceId} 的 ¥{$amount} 优惠减免",
-            default                 => $this->describeGeneric($action, $model, $actor),
+            default => $this->describeGeneric($action, $model, $actor),
         };
     }
 
     private function describeGeneric(string $action, Model $model, string $actor): string
     {
-        $modelLabel    = AuditLog::MODEL_LABELS[get_class($model)] ?? class_basename($model);
-        $actionLabel   = AuditLog::ACTION_LABELS[$action] ?? $action;
+        $modelLabel = AuditLog::MODEL_LABELS[get_class($model)] ?? class_basename($model);
+        $actionLabel = AuditLog::ACTION_LABELS[$action] ?? $action;
         $auditableLabel = $this->getAuditableLabel($model);
 
         return "{$actor} {$actionLabel}了{$modelLabel} {$auditableLabel}";
@@ -575,19 +576,20 @@ class AuditLogService
         }
 
         // 生成明细的内容指纹（用于匹配）
-        $generateFingerprint = function($item) {
+        $generateFingerprint = function ($item) {
             $name = $item['item_name'] ?? '';
             $qty = $item['quantity'] ?? 0;
-            $price = (float)($item['unit_price'] ?? 0);
+            $price = (float) ($item['unit_price'] ?? 0);
+
             // 使用名称+数量+单价作为唯一标识
-            return $name . '|' . $qty . '|' . number_format($price, 2);
+            return $name.'|'.$qty.'|'.number_format($price, 2);
         };
 
         // 构建旧明细的指纹映射（指纹 => [明细数据, 已匹配标记]）
         $oldItemsMap = [];
         foreach ($oldItems as $item) {
             $fingerprint = $generateFingerprint($item);
-            if (!isset($oldItemsMap[$fingerprint])) {
+            if (! isset($oldItemsMap[$fingerprint])) {
                 $oldItemsMap[$fingerprint] = [];
             }
             $oldItemsMap[$fingerprint][] = ['item' => $item, 'matched' => false];
@@ -597,7 +599,7 @@ class AuditLogService
         $newItemsMap = [];
         foreach ($newItems as $item) {
             $fingerprint = $generateFingerprint($item);
-            if (!isset($newItemsMap[$fingerprint])) {
+            if (! isset($newItemsMap[$fingerprint])) {
                 $newItemsMap[$fingerprint] = [];
             }
             $newItemsMap[$fingerprint][] = ['item' => $item, 'matched' => false];
@@ -620,11 +622,11 @@ class AuditLogService
         // 2. 统计删除的明细（旧数据中未匹配的）
         foreach ($oldItemsMap as $fingerprint => $oldItemsList) {
             foreach ($oldItemsList as $entry) {
-                if (!$entry['matched']) {
+                if (! $entry['matched']) {
                     $item = $entry['item'];
                     $itemName = $item['item_name'] ?? '未知商品';
                     $qty = $item['quantity'] ?? 1;
-                    $price = number_format((float)($item['unit_price'] ?? 0), 2);
+                    $price = number_format((float) ($item['unit_price'] ?? 0), 2);
                     $changes[] = "删除了明细「{$itemName}」（数量：{$qty}，单价：¥{$price}）";
                 }
             }
@@ -633,11 +635,11 @@ class AuditLogService
         // 3. 统计新增的明细（新数据中未匹配的）
         foreach ($newItemsMap as $fingerprint => $newItemsList) {
             foreach ($newItemsList as $entry) {
-                if (!$entry['matched']) {
+                if (! $entry['matched']) {
                     $item = $entry['item'];
                     $itemName = $item['item_name'] ?? '未知商品';
                     $qty = $item['quantity'] ?? 1;
-                    $price = number_format((float)($item['unit_price'] ?? 0), 2);
+                    $price = number_format((float) ($item['unit_price'] ?? 0), 2);
                     $changes[] = "新增了明细「{$itemName}」（数量：{$qty}，单价：¥{$price}）";
                 }
             }
@@ -660,11 +662,11 @@ class AuditLogService
         }
 
         $customerId = $model->getAttribute('customer_id');
-        if (!$customerId) {
+        if (! $customerId) {
             return '未知客户';
         }
 
-        if (!isset($this->customerCache[$customerId])) {
+        if (! isset($this->customerCache[$customerId])) {
             $customer = \App\Models\Customer::find($customerId);
             $this->customerCache[$customerId] = $customer?->name ?? "客户#{$customerId}";
         }
@@ -687,7 +689,7 @@ class AuditLogService
      */
     protected function getStoreName(int $storeId): ?string
     {
-        if (!isset($this->storeCache[$storeId])) {
+        if (! isset($this->storeCache[$storeId])) {
             $store = Store::find($storeId);
             $this->storeCache[$storeId] = $store?->name;
         }
@@ -741,4 +743,3 @@ class AuditLogService
         ];
     }
 }
-

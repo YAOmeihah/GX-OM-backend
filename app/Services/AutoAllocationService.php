@@ -2,10 +2,9 @@
 
 namespace App\Services;
 
-use App\Models\Payment;
-use App\Models\Invoice;
-use App\Models\PaymentAllocation;
 use App\Enums\PaymentAllocationStrategy;
+use App\Models\Invoice;
+use App\Models\Payment;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -49,7 +48,7 @@ class AutoAllocationService
                 'suggestions' => [],
                 'total_debt' => 0,
                 'excess_amount' => $payment->unallocated_amount,
-                'can_fully_allocate' => false
+                'can_fully_allocate' => false,
             ];
         }
 
@@ -63,7 +62,7 @@ class AutoAllocationService
             'excess_amount' => $excessAmount,
             'can_fully_allocate' => $payment->unallocated_amount <= $totalDebt,
             'strategy' => $strategy->value,
-            'strategy_description' => $strategy->getDescription()
+            'strategy_description' => $strategy->getDescription(),
         ];
     }
 
@@ -83,7 +82,7 @@ class AutoAllocationService
             'excess_amount' => $excessAmount,
             'total_debt' => $totalDebt,
             'payment_amount' => $payment->amount,
-            'recommendations' => $this->getExcessPaymentRecommendations($excessAmount)
+            'recommendations' => $this->getExcessPaymentRecommendations($excessAmount),
         ];
     }
 
@@ -115,6 +114,7 @@ class AutoAllocationService
         // 添加计算字段
         return $query->get()->map(function ($invoice) {
             $invoice->remaining_amount = $invoice->amount - $invoice->paid_amount;
+
             return $invoice;
         });
     }
@@ -149,7 +149,7 @@ class AutoAllocationService
                     $allocations[] = [
                         'allocation' => $allocation,
                         'invoice' => $invoice,
-                        'amount' => $allocateAmount
+                        'amount' => $allocateAmount,
                     ];
 
                     $remainingAmount = \App\Helpers\MoneyHelper::toFloat(
@@ -192,7 +192,7 @@ class AutoAllocationService
                     'will_be_fully_paid' => \App\Helpers\MoneyHelper::isGreaterThanOrEqual($allocateAmount, $invoiceRemaining),
                     'created_at' => $invoice->created_at,
                     'due_date' => $invoice->due_date,
-                    'status' => $invoice->status
+                    'status' => $invoice->status,
                 ];
 
                 $remainingAmount = \App\Helpers\MoneyHelper::toFloat(
@@ -217,18 +217,18 @@ class AutoAllocationService
             [
                 'type' => 'prepayment',
                 'description' => '转为预付款，用于未来账单',
-                'amount' => $excessAmount
+                'amount' => $excessAmount,
             ],
             [
                 'type' => 'refund',
                 'description' => '退还给客户',
-                'amount' => $excessAmount
+                'amount' => $excessAmount,
             ],
             [
                 'type' => 'credit',
                 'description' => '记为客户信用余额',
-                'amount' => $excessAmount
-            ]
+                'amount' => $excessAmount,
+            ],
         ];
     }
 
@@ -252,13 +252,13 @@ class AutoAllocationService
                         'success' => true,
                         'allocations_count' => count($allocations),
                         'allocated_amount' => array_sum(array_column($allocations, 'amount')),
-                        'allocations' => $allocations
+                        'allocations' => $allocations,
                     ];
                 } catch (\Exception $e) {
                     $results[] = [
                         'payment_id' => $paymentId,
                         'success' => false,
-                        'error' => $e->getMessage()
+                        'error' => $e->getMessage(),
                     ];
                 }
             }
@@ -281,7 +281,7 @@ class AutoAllocationService
             return [
                 'allocations' => [],
                 'discounts' => [],
-                'message' => '没有未分配金额'
+                'message' => '没有未分配金额',
             ];
         }
 
@@ -292,7 +292,7 @@ class AutoAllocationService
             return [
                 'allocations' => [],
                 'discounts' => [],
-                'message' => '没有找到未付账单'
+                'message' => '没有找到未付账单',
             ];
         }
 
@@ -300,7 +300,7 @@ class AutoAllocationService
         $result = [
             'allocations' => [],
             'discounts' => [],
-            'message' => '自动分配完成'
+            'message' => '自动分配完成',
         ];
 
         DB::transaction(function () use ($payment, $unpaidInvoices, $allowDiscount, $approvedBy, &$result) {
@@ -312,14 +312,14 @@ class AutoAllocationService
             // 如果允许优惠减免且还有未分配金额，检查是否可以进行优惠减免
             $freshPayment = $payment->fresh();
             if ($allowDiscount && \App\Helpers\MoneyHelper::isPositive($freshPayment->unallocated_amount)) {
-                $discountService = new \App\Services\PaymentDiscountService();
+                $discountService = new \App\Services\PaymentDiscountService;
                 $gapInfo = $discountService->detectPaymentGap($freshPayment);
 
                 if ($gapInfo['has_gap'] && $gapInfo['can_apply_discount']) {
                     // 自动创建优惠减免记录
                     $discountData = $this->generateDiscountData($unpaidInvoices, $gapInfo['gap_amount']);
 
-                    if (!empty($discountData) && $approvedBy) {
+                    if (! empty($discountData) && $approvedBy) {
                         try {
                             $discountResult = $discountService->processDiscountScenario(
                                 $freshPayment,
@@ -329,7 +329,7 @@ class AutoAllocationService
                             $discounts = $discountResult['discounts'] ?? [];
                         } catch (\Exception $e) {
                             // 如果优惠减免失败，记录错误但不影响正常分配
-                            Log::warning('自动优惠减免失败: ' . $e->getMessage());
+                            Log::warning('自动优惠减免失败: '.$e->getMessage());
                         }
                     }
                 }
@@ -338,7 +338,7 @@ class AutoAllocationService
             $result = [
                 'allocations' => $allocations,
                 'discounts' => $discounts,
-                'message' => '自动分配完成' . (!empty($discounts) ? '，已处理优惠减免' : '')
+                'message' => '自动分配完成'.(! empty($discounts) ? '，已处理优惠减免' : ''),
             ];
         });
 
@@ -371,7 +371,7 @@ class AutoAllocationService
                         'invoice_id' => $invoice->id,
                         'amount' => $discountAmount,
                         'type' => $this->suggestDiscountType($discountAmount),
-                        'reason' => '自动优惠减免'
+                        'reason' => '自动优惠减免',
                     ];
 
                     $remainingDiscount = \App\Helpers\MoneyHelper::toFloat(
@@ -408,12 +408,12 @@ class AutoAllocationService
     ): array {
         $basicSuggestion = $this->getAllocationSuggestion($payment, $strategy);
 
-        if (!$includeDiscount || $basicSuggestion['can_fully_allocate']) {
+        if (! $includeDiscount || $basicSuggestion['can_fully_allocate']) {
             return $basicSuggestion;
         }
 
         // 如果不能完全分配，计算优惠减免建议
-        $discountService = new \App\Services\PaymentDiscountService();
+        $discountService = new \App\Services\PaymentDiscountService;
         $gapInfo = $discountService->detectPaymentGap($payment);
 
         if ($gapInfo['has_gap'] && $gapInfo['can_apply_discount']) {

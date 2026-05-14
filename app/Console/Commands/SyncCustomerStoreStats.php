@@ -2,11 +2,10 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Command;
 use App\Models\Customer;
 use App\Models\Store;
 use App\Services\CustomerStatsService;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Console\Command;
 
 class SyncCustomerStoreStats extends Command
 {
@@ -35,15 +34,16 @@ class SyncCustomerStoreStats extends Command
         $storeId = $this->option('store');
 
         $customers = Customer::query()
-            ->when($customerId, fn($q) => $q->where('id', $customerId))
+            ->when($customerId, fn ($q) => $q->where('id', $customerId))
             ->get();
 
         $stores = Store::query()
-            ->when($storeId, fn($q) => $q->where('id', $storeId))
+            ->when($storeId, fn ($q) => $q->where('id', $storeId))
             ->get();
 
         if ($customers->isEmpty() || $stores->isEmpty()) {
             $this->warn('未找到匹配的客户或门店数据。');
+
             return;
         }
 

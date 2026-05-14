@@ -6,7 +6,7 @@ use Illuminate\Foundation\Http\FormRequest;
 
 /**
  * 创建账单请求验证
- * 
+ *
  * 将 InvoiceController::store() 中的验证逻辑抽离到此处
  */
 class StoreInvoiceRequest extends FormRequest
@@ -16,14 +16,9 @@ class StoreInvoiceRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        $storeId = $this->input('store_id');
-
-        if (!$storeId) {
-            return false;
-        }
-
         $user = $this->user();
-        return $user->isAdmin() || $user->belongsToStore($storeId);
+
+        return $user && ($user->isAdmin() || $user->isStoreOwner() || $user->isStoreStaff());
     }
 
     /**
@@ -52,8 +47,22 @@ class StoreInvoiceRequest extends FormRequest
     public function withValidator($validator)
     {
         $validator->after(function ($validator) {
+            $storeId = $this->input('store_id');
+            if ($storeId && ! $this->user()->isAdmin() && ! $this->user()->belongsToStore($storeId)) {
+                $validator->errors()->add('store_id', '你没有权限在此门店创建账单');
+            }
+
+            // 验证：客户必须属于所选门店
+            $customerId = $this->input('customer_id');
+            if ($storeId && $customerId) {
+                $customer = \App\Models\Customer::find($customerId);
+                if ($customer && $customer->store_id != $storeId) {
+                    $validator->errors()->add('customer_id', '该客户不属于所选门店');
+                }
+            }
+
             // 验证：必须提供 amount 或 items 其中之一
-            if (!$this->filled('amount') && !$this->filled('items')) {
+            if (! $this->filled('amount') && ! $this->filled('items')) {
                 $validator->errors()->add('amount', '必须提供账单金额或明细项目');
             }
         });

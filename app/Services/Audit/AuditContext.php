@@ -13,8 +13,7 @@ class AuditContext
         public readonly string $scopeType,
         public readonly ?int $businessStoreId,
         public readonly ?int $actorStoreId,
-    ) {
-    }
+    ) {}
 
     /**
      * 创建全局日志上下文

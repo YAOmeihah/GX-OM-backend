@@ -3,9 +3,9 @@
 namespace App\Http\Middleware;
 
 use Closure;
-use Illuminate\Http\Request;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Auth\Middleware\Authenticate as Middleware;
+use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 class ApiAuthenticate extends Middleware
@@ -33,10 +33,6 @@ class ApiAuthenticate extends Middleware
 
     /**
      * Handle unauthenticated requests for API.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  \Illuminate\Auth\AuthenticationException  $exception
-     * @return \Symfony\Component\HttpFoundation\Response
      */
     protected function handleUnauthenticated(Request $request, AuthenticationException $exception): Response
     {
@@ -49,18 +45,18 @@ class ApiAuthenticate extends Middleware
                 'description' => '此接口需要认证，请在请求头中包含有效的Bearer令牌',
                 'header_format' => 'Authorization: Bearer {your_token}',
                 'login_endpoint' => url('/api/login'),
-                'how_to_get_token' => '请先调用登录接口获取访问令牌'
+                'how_to_get_token' => '请先调用登录接口获取访问令牌',
             ],
-            'timestamp' => now()->toISOString()
+            'timestamp' => now()->toISOString(),
         ], 401, [
             'Content-Type' => 'application/json',
-            'WWW-Authenticate' => 'Bearer realm="API"'
+            'WWW-Authenticate' => 'Bearer realm="API"',
         ]);
     }
 
     /**
      * Get the path the user should be redirected to when they are not authenticated.
-     * 
+     *
      * 对于API中间件，我们不进行重定向，而是返回JSON响应
      */
     protected function redirectTo(Request $request): ?string

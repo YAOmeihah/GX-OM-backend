@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\PaymentAllocationStrategy;
 use App\Http\Requests\Payment\AllocatePaymentRequest;
 use App\Http\Requests\Payment\ApplyDiscountRequest;
 use App\Http\Requests\Payment\AutoAllocateRequest;
@@ -12,8 +13,6 @@ use App\Models\Payment;
 use App\Models\Store;
 use App\Services\AutoAllocationService;
 use App\Services\PaymentDiscountService;
-use App\Enums\PaymentAllocationStrategy;
-use App\Rules\ValidDiscountData;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -97,7 +96,7 @@ class PaymentController extends ApiController
         $query = Payment::query();
 
         // 如果不是管理员，只能查看自己所属门店的还款
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             $storeIds = $user->stores->pluck('id')->toArray();
             $query->whereIn('store_id', $storeIds);
         }
@@ -106,7 +105,7 @@ class PaymentController extends ApiController
         if ($request->has('store_id')) {
             $storeId = $request->input('store_id');
             // 验证用户是否有权限查看该门店的还款
-            if (!$this->isAdmin() && !$this->belongsToStore($storeId)) {
+            if (! $this->isAdmin() && ! $this->belongsToStore($storeId)) {
                 return $this->errorResponse('权限不足', 403);
             }
             $query->where('store_id', $storeId);
@@ -139,7 +138,7 @@ class PaymentController extends ApiController
             'discounts' => function ($query) {
                 $query->select('id', 'payment_id', 'discount_amount', 'discount_type');
             },
-            'attachments'
+            'attachments',
         ]);
 
         // 排序
@@ -244,7 +243,7 @@ class PaymentController extends ApiController
 
         // 生成唯一还款号
         $store = Store::find($validated['store_id']);
-        $paymentNumber = 'PAY-' . $store->code . '-' . date('Ymd') . '-' . Str::random(5);
+        $paymentNumber = 'PAY-'.$store->code.'-'.date('Ymd').'-'.Str::random(5);
 
         DB::beginTransaction();
 
@@ -264,15 +263,15 @@ class PaymentController extends ApiController
             ]);
 
             // 检查是否需要处理优惠抹零
-            if (!empty($validated['apply_discount']) && !empty($validated['discount_data'])) {
+            if (! empty($validated['apply_discount']) && ! empty($validated['discount_data'])) {
                 // 验证用户是否有权限进行优惠减免
-                $discountService = new PaymentDiscountService();
-                if (!$discountService->canApproveDiscount($user->id, $validated['store_id'])) {
+                $discountService = new PaymentDiscountService;
+                if (! $discountService->canApproveDiscount($user->id, $validated['store_id'])) {
                     throw new \Exception('您没有权限进行优惠减免操作');
                 }
 
                 // 先处理前端传来的手动分配（如果有）
-                if (!empty($validated['allocations'])) {
+                if (! empty($validated['allocations'])) {
                     foreach ($validated['allocations'] as $allocationData) {
                         $invoice = Invoice::findOrFail($allocationData['invoice_id']);
 
@@ -295,6 +294,10 @@ class PaymentController extends ApiController
                 // 然后只创建减免记录（不再自动分配）
                 foreach ($validated['discount_data'] as $discountItem) {
                     $invoice = Invoice::findOrFail($discountItem['invoice_id']);
+
+                    if ($invoice->customer_id != $validated['customer_id'] || $invoice->store_id != $validated['store_id']) {
+                        throw new \Exception('账单与还款的客户或门店不匹配');
+                    }
 
                     $payment->createDiscount(
                         $invoice,
@@ -326,7 +329,7 @@ class PaymentController extends ApiController
             // 传统的手动分配处理
             $totalAllocated = 0;
 
-            if (!empty($validated['allocations'])) {
+            if (! empty($validated['allocations'])) {
                 foreach ($validated['allocations'] as $allocationData) {
                     $invoice = Invoice::findOrFail($allocationData['invoice_id']);
 
@@ -365,6 +368,7 @@ class PaymentController extends ApiController
             return $this->successResponse($payment, '还款记录创建成功', 201);
         } catch (\Exception $e) {
             DB::rollBack();
+
             return $this->errorResponse($e->getMessage(), 422);
         }
     }
@@ -447,7 +451,7 @@ class PaymentController extends ApiController
             'allocations.allocatedBy:id,name',
             'discounts.invoice',
             'discounts.approvedBy:id,name',
-            'attachments'
+            'attachments',
         ])->findOrFail($id);
 
         // 使用 Policy 进行权限检查
@@ -609,7 +613,7 @@ class PaymentController extends ApiController
         foreach ($allocations as $alloc) {
             $invoice = Invoice::find($alloc['invoice_id']);
 
-            if (!$invoice) {
+            if (! $invoice) {
                 return $this->errorResponse("账单 ID {$alloc['invoice_id']} 不存在", 422);
             }
 
@@ -664,7 +668,8 @@ class PaymentController extends ApiController
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return $this->errorResponse('批量分配失败：' . $e->getMessage(), 500);
+
+            return $this->errorResponse('批量分配失败：'.$e->getMessage(), 500);
         }
     }
 
@@ -806,7 +811,7 @@ class PaymentController extends ApiController
             $request->input('strategy', 'oldest_first')
         );
 
-        $allocationService = new AutoAllocationService();
+        $allocationService = new AutoAllocationService;
 
         // 获取包含优惠减免的分配建议
         $includeDiscount = $request->input('include_discount', true);
@@ -820,10 +825,10 @@ class PaymentController extends ApiController
             'suggestion' => $suggestion,
             'excess_info' => $excessInfo,
             'available_strategies' => collect(PaymentAllocationStrategy::getAvailableStrategies())
-                ->map(fn($strategy) => [
+                ->map(fn ($strategy) => [
                     'value' => $strategy->value,
-                    'description' => $strategy->getDescription()
-                ])
+                    'description' => $strategy->getDescription(),
+                ]),
         ], '分配建议获取成功');
     }
 
@@ -903,14 +908,14 @@ class PaymentController extends ApiController
             $validated['strategy'] ?? 'oldest_first'
         );
 
-        $allocationService = new AutoAllocationService();
+        $allocationService = new AutoAllocationService;
 
         // 检查超额还款
         $excessInfo = $allocationService->detectExcessPayment($payment);
-        if ($excessInfo['is_excess'] && !($validated['confirm_excess'] ?? false)) {
+        if ($excessInfo['is_excess'] && ! ($validated['confirm_excess'] ?? false)) {
             return $this->errorResponse('检测到超额还款，请确认是否继续', 422, [
                 'excess_info' => $excessInfo,
-                'requires_confirmation' => true
+                'requires_confirmation' => true,
             ]);
         }
 
@@ -956,7 +961,7 @@ class PaymentController extends ApiController
             }
 
         } catch (\Exception $e) {
-            return $this->errorResponse('自动分配失败：' . $e->getMessage(), 500);
+            return $this->errorResponse('自动分配失败：'.$e->getMessage(), 500);
         }
     }
 
@@ -1019,13 +1024,19 @@ class PaymentController extends ApiController
             'payment_ids' => 'required|array|min:1',
             'payment_ids.*' => 'required|integer|exists:payments,id',
             'strategy' => 'nullable|string|in:oldest_first,due_date_first,smallest_first,largest_first,overdue_first',
-            'store_id' => 'nullable|integer|exists:stores,id'
+            'store_id' => 'nullable|integer|exists:stores,id',
         ]);
 
-        // 权限检查
-        if (!$this->isAdmin() && isset($validated['store_id'])) {
-            if (!$this->isManagerOfStore($validated['store_id'])) {
-                return $this->errorResponse('需要系统管理员权限或对应店长权限', 403);
+        $requestedStoreId = $validated['store_id'] ?? null;
+
+        // 批量自动分配需要管理员或对应门店店长权限。
+        $payments = Payment::whereIn('id', $validated['payment_ids'])->get();
+        foreach ($payments as $payment) {
+            if (! $this->isAdmin() && ! $this->isManagerOfStore($payment->store_id)) {
+                return $this->errorResponse("还款 #{$payment->id} 不属于你可管理的门店", 403);
+            }
+            if ($requestedStoreId && $payment->store_id != $requestedStoreId) {
+                return $this->errorResponse("还款 #{$payment->id} 不属于指定门店", 422);
             }
         }
 
@@ -1033,12 +1044,12 @@ class PaymentController extends ApiController
             $validated['strategy'] ?? 'oldest_first'
         );
 
-        $allocationService = new AutoAllocationService();
+        $allocationService = new AutoAllocationService;
 
         try {
             $results = $allocationService->batchAutoAllocate($validated['payment_ids'], $strategy);
 
-            $successCount = count(array_filter($results, fn($r) => $r['success']));
+            $successCount = count(array_filter($results, fn ($r) => $r['success']));
             $totalCount = count($results);
 
             return $this->successResponse([
@@ -1047,12 +1058,12 @@ class PaymentController extends ApiController
                     'total_payments' => $totalCount,
                     'successful_allocations' => $successCount,
                     'failed_allocations' => $totalCount - $successCount,
-                    'strategy_used' => $strategy->value
-                ]
+                    'strategy_used' => $strategy->value,
+                ],
             ], "批量自动分配完成，成功处理 {$successCount}/{$totalCount} 笔还款");
 
         } catch (\Exception $e) {
-            return $this->errorResponse('批量自动分配失败：' . $e->getMessage(), 500);
+            return $this->errorResponse('批量自动分配失败：'.$e->getMessage(), 500);
         }
     }
 
@@ -1106,13 +1117,13 @@ class PaymentController extends ApiController
         // 使用 Policy 进行权限检查
         $this->authorize('detectGap', $payment);
 
-        $discountService = new PaymentDiscountService();
+        $discountService = new PaymentDiscountService;
         $gapInfo = $discountService->detectPaymentGap($payment);
 
         return $this->successResponse([
             'payment' => $payment->load(['customer', 'store']),
             'gap_info' => $gapInfo,
-            'can_approve_discount' => $discountService->canApproveDiscount(Auth::id(), $payment->store_id)
+            'can_approve_discount' => $discountService->canApproveDiscount(Auth::id(), $payment->store_id),
         ], '差额检测完成');
     }
 
@@ -1187,7 +1198,7 @@ class PaymentController extends ApiController
         // 权限检查和验证已在 ApplyDiscountRequest 中完成
         $validated = $request->validated();
 
-        $discountService = new PaymentDiscountService();
+        $discountService = new PaymentDiscountService;
 
         // 验证用户是否有权限进行优惠减免
         $permissionErrors = $discountService->validateDiscountPermissions(
@@ -1196,8 +1207,8 @@ class PaymentController extends ApiController
             $validated['discount_data']
         );
 
-        if (!empty($permissionErrors)) {
-            return $this->errorResponse('权限验证失败：' . implode('; ', $permissionErrors), 403);
+        if (! empty($permissionErrors)) {
+            return $this->errorResponse('权限验证失败：'.implode('; ', $permissionErrors), 403);
         }
 
         try {
@@ -1216,13 +1227,14 @@ class PaymentController extends ApiController
 
             return $this->successResponse([
                 'payment' => $payment,
-                'result' => $result
+                'result' => $result,
             ], '优惠减免处理成功');
 
         } catch (\Exception $e) {
             // 记录错误日志
             $discountService->logDiscountOperation($payment, $validated['discount_data'], Auth::id(), 'failed');
-            return $this->errorResponse('优惠减免处理失败：' . $e->getMessage(), 422);
+
+            return $this->errorResponse('优惠减免处理失败：'.$e->getMessage(), 422);
         }
     }
 
@@ -1290,12 +1302,12 @@ class PaymentController extends ApiController
         $storeId = $validated['store_id'] ?? null;
 
         // 权限检查
-        if ($storeId && !$this->isAdmin() && !$this->belongsToStore($storeId)) {
+        if ($storeId && ! $this->isAdmin() && ! $this->belongsToStore($storeId)) {
             return $this->errorResponse('权限不足', 403);
         }
 
         // 如果不是管理员且没有指定门店，则获取用户所属门店的统计
-        if (!$this->isAdmin() && !$storeId) {
+        if (! $this->isAdmin() && ! $storeId) {
             $userStores = Auth::user()->stores->pluck('id')->toArray();
             if (empty($userStores)) {
                 return $this->errorResponse('您没有关联任何门店', 403);
@@ -1304,11 +1316,11 @@ class PaymentController extends ApiController
         }
 
         $dateRange = null;
-        if (!empty($validated['start_date']) && !empty($validated['end_date'])) {
+        if (! empty($validated['start_date']) && ! empty($validated['end_date'])) {
             $dateRange = [$validated['start_date'], $validated['end_date']];
         }
 
-        $discountService = new PaymentDiscountService();
+        $discountService = new PaymentDiscountService;
         $statistics = $discountService->getDiscountStatistics($storeId, $dateRange);
 
         return $this->successResponse($statistics, '优惠减免统计获取成功');
@@ -1377,11 +1389,11 @@ class PaymentController extends ApiController
 
             return $this->successResponse([
                 'payment' => $payment,
-                'message' => '分配撤销成功'
+                'message' => '分配撤销成功',
             ], '分配撤销成功');
 
         } catch (\Exception $e) {
-            return $this->errorResponse('分配撤销失败：' . $e->getMessage(), 422);
+            return $this->errorResponse('分配撤销失败：'.$e->getMessage(), 422);
         }
     }
 
@@ -1455,7 +1467,7 @@ class PaymentController extends ApiController
             );
 
         } catch (\Exception $e) {
-            return $this->errorResponse('分配撤销失败：' . $e->getMessage(), 422);
+            return $this->errorResponse('分配撤销失败：'.$e->getMessage(), 422);
         }
     }
 }

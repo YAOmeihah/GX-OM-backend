@@ -2,16 +2,15 @@
 
 namespace App\Console\Commands\Maintenance;
 
+use App\Models\Attachment;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\PaymentDiscount;
-use App\Models\InvoiceItem;
-use App\Models\Attachment;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 
 class CleanupHistoryCommand extends Command
 {
@@ -56,19 +55,20 @@ class CleanupHistoryCommand extends Command
 
         if ($months <= 0) {
             $this->error('保留月数必须大于0');
+
             return Command::FAILURE;
         }
 
         $cutoffDate = Carbon::now()->subMonths($months);
 
-        $this->info("=== 历史数据清理工具 ===");
+        $this->info('=== 历史数据清理工具 ===');
         $this->info("截止日期: {$cutoffDate->toDateString()} (超过 {$months} 个月)");
-        $this->info("清理目标: " . implode(', ', $includeTargets));
-        if (!empty($excludeStores)) {
-            $this->info("排除门店: " . implode(', ', $excludeStores));
+        $this->info('清理目标: '.implode(', ', $includeTargets));
+        if (! empty($excludeStores)) {
+            $this->info('排除门店: '.implode(', ', $excludeStores));
         }
         if ($isDryRun) {
-            $this->warn("[模拟运行模式]");
+            $this->warn('[模拟运行模式]');
         }
         $this->newLine();
 
@@ -77,26 +77,28 @@ class CleanupHistoryCommand extends Command
 
         if ($stats['total'] === 0) {
             $this->info('没有符合条件的数据需要清理。');
+
             return Command::SUCCESS;
         }
 
         $this->displayStats($stats);
 
         // 确认操作
-        if (!$isDryRun && !$force) {
-            if (!$this->confirm('确认删除以上数据? 此操作不可逆!')) {
+        if (! $isDryRun && ! $force) {
+            if (! $this->confirm('确认删除以上数据? 此操作不可逆!')) {
                 $this->info('操作已取消。');
+
                 return Command::SUCCESS;
             }
         }
 
         // 导出数据
-        if ($shouldExport && !$isDryRun) {
+        if ($shouldExport && ! $isDryRun) {
             $this->exportData($cutoffDate, $includeTargets, $excludeStores);
         }
 
         // 执行清理
-        if (!$isDryRun) {
+        if (! $isDryRun) {
             $this->performCleanup($cutoffDate, $includeTargets, $excludeStores, $stats);
         }
 
@@ -161,7 +163,7 @@ class CleanupHistoryCommand extends Command
         $query = Invoice::where('status', 'paid')
             ->where('created_at', '<', $cutoffDate);
 
-        if (!empty($excludeStores)) {
+        if (! empty($excludeStores)) {
             $query->whereNotIn('store_id', $excludeStores);
         }
 
@@ -185,7 +187,7 @@ class CleanupHistoryCommand extends Command
                     ->where('invoices.status', '!=', 'paid');
             });
 
-        if (!empty($excludeStores)) {
+        if (! empty($excludeStores)) {
             $query->whereNotIn('store_id', $excludeStores);
         }
 
@@ -220,7 +222,7 @@ class CleanupHistoryCommand extends Command
         $this->info('正在导出数据...');
 
         $exportDir = storage_path('app/maintenance_exports');
-        if (!is_dir($exportDir)) {
+        if (! is_dir($exportDir)) {
             mkdir($exportDir, 0755, true);
         }
 

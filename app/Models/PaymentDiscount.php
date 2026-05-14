@@ -27,7 +27,9 @@ class PaymentDiscount extends Model
      * 折扣类型常量
      */
     const TYPE_WRITE_OFF = 'write_off';    // 坏账核销
+
     const TYPE_DISCOUNT = 'discount';      // 折扣
+
     const TYPE_PROMOTION = 'promotion';    // 促销优惠
 
     /**
@@ -48,6 +50,7 @@ class PaymentDiscount extends Model
     public function getDiscountTypeNameAttribute(): string
     {
         $types = self::getDiscountTypes();
+
         return $types[$this->discount_type] ?? '未知类型';
     }
 
@@ -141,9 +144,6 @@ class PaymentDiscount extends Model
 
     /**
      * Prepare a date for array / JSON serialization.
-     *
-     * @param  \DateTimeInterface  $date
-     * @return string
      */
     protected function serializeDate(\DateTimeInterface $date): string
     {

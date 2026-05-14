@@ -8,7 +8,7 @@ use Illuminate\Foundation\Http\FormRequest;
 
 /**
  * 应用优惠减免请求验证
- * 
+ *
  * 将 PaymentController::applyDiscount() 中的验证逻辑抽离到此处
  */
 class ApplyDiscountRequest extends FormRequest
@@ -20,11 +20,12 @@ class ApplyDiscountRequest extends FormRequest
     {
         $payment = $this->getPayment();
 
-        if (!$payment) {
+        if (! $payment) {
             return false;
         }
 
         $user = $this->user();
+
         return $user->isAdmin() || $user->belongsToStore($payment->store_id);
     }
 
