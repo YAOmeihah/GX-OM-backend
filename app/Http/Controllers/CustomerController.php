@@ -827,16 +827,8 @@ class CustomerController extends ApiController
                     $allocateAmount = min($remainingPayment, $invoiceRemaining);
 
                     if ($allocateAmount > 0) {
-                        // 创建分配记录
-                        \App\Models\PaymentAllocation::create([
-                            'payment_id' => $payment->id,
-                            'invoice_id' => $invoice->id,
-                            'amount' => $allocateAmount,
-                            'allocated_by' => $user->id,
-                        ]);
-
-                        // 更新账单已付金额
-                        $invoice->paid_amount = $invoice->paid_amount + $allocateAmount;
+                        $payment->allocateToInvoice($invoice, $allocateAmount, $user->id);
+                        $invoice->refresh();
 
                         $allocations[] = [
                             'invoice_id' => $invoice->id,
@@ -882,9 +874,7 @@ class CustomerController extends ApiController
                     }
                 }
 
-                // 更新还款已分配金额
-                $payment->allocated_amount = $paymentAmount;
-                $payment->save();
+                $payment->refresh();
 
                 return $this->successResponse([
                     'payment' => [
@@ -904,6 +894,8 @@ class CustomerController extends ApiController
             });
         } catch (DiscountValidationException $e) {
             return $this->errorResponse($e->getMessage(), $e->statusCode());
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 422);
         }
     }
 

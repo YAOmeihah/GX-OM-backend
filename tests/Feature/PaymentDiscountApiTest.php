@@ -730,6 +730,141 @@ class PaymentDiscountApiTest extends TestCase
     }
 
     /** @test */
+    public function it_returns_422_when_concurrent_manual_api_allocation_exceeds_fresh_actual_remaining()
+    {
+        $payment = Payment::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 1000.00,
+            'allocated_amount' => 0,
+            'received_by' => $this->storeOwner->id,
+        ]);
+
+        $invoice = Invoice::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 1000.00,
+            'paid_amount' => 0,
+            'status' => 'unpaid',
+        ]);
+
+        $active = true;
+        $invoiceDiscountsLoaded = false;
+        $discountInserted = false;
+        $existingPaymentId = $this->payment->id;
+        $paymentId = $payment->id;
+        $invoiceId = $invoice->id;
+        $approvedBy = $this->storeOwner->id;
+
+        DB::listen(function ($query) use (&$active, &$invoiceDiscountsLoaded, &$discountInserted, $existingPaymentId, $paymentId, $invoiceId, $approvedBy) {
+            if (! $active || $discountInserted) {
+                return;
+            }
+
+            $sql = strtolower($query->sql);
+            if (str_contains($sql, 'payment_discounts')) {
+                $invoiceDiscountsLoaded = true;
+
+                return;
+            }
+
+            if (! $invoiceDiscountsLoaded) {
+                return;
+            }
+
+            if (! str_contains($sql, 'payments')) {
+                return;
+            }
+
+            $bindings = array_map('strval', $query->bindings);
+            if (! in_array((string) $paymentId, $bindings, true)) {
+                return;
+            }
+
+            $discountInserted = true;
+            PaymentDiscount::factory()->create([
+                'payment_id' => $existingPaymentId,
+                'invoice_id' => $invoiceId,
+                'discount_amount' => 400.00,
+                'discount_type' => 'discount',
+                'approved_by' => $approvedBy,
+            ]);
+        });
+
+        Sanctum::actingAs($this->storeOwner);
+
+        try {
+            $response = $this->postJson("/api/payments/{$payment->id}/allocate", [
+                'invoice_id' => $invoice->id,
+                'amount' => 700.00,
+            ]);
+        } finally {
+            $active = false;
+        }
+
+        $response->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', '分配金额超过了账单剩余未付金额');
+
+        $this->assertDatabaseMissing('payment_allocations', [
+            'payment_id' => $payment->id,
+            'invoice_id' => $invoice->id,
+        ]);
+    }
+
+    /** @test */
+    public function clear_debt_returns_422_when_concurrent_discount_reduces_fresh_actual_remaining()
+    {
+        $active = true;
+        $discountInserted = false;
+        $existingPaymentId = $this->payment->id;
+        $invoiceId = $this->invoice1->id;
+        $approvedBy = $this->storeOwner->id;
+
+        DB::listen(function ($query) use (&$active, &$discountInserted, $existingPaymentId, $invoiceId, $approvedBy) {
+            if (! $active || $discountInserted) {
+                return;
+            }
+
+            $sql = strtolower($query->sql);
+            if (! str_contains($sql, 'insert') || ! str_contains($sql, 'payments')) {
+                return;
+            }
+
+            $discountInserted = true;
+            PaymentDiscount::factory()->create([
+                'payment_id' => $existingPaymentId,
+                'invoice_id' => $invoiceId,
+                'discount_amount' => 200.00,
+                'discount_type' => 'discount',
+                'approved_by' => $approvedBy,
+            ]);
+        });
+
+        Sanctum::actingAs($this->storeOwner);
+
+        try {
+            $response = $this->postJson("/api/customers/{$this->customer->id}/clear-debt", [
+                'store_id' => $this->store->id,
+                'payment_amount' => 1500.00,
+                'payment_method' => 'cash',
+                'apply_discount' => false,
+            ]);
+        } finally {
+            $active = false;
+        }
+
+        $response->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', '分配金额超过了账单剩余未付金额');
+
+        $this->assertDatabaseMissing('payment_allocations', [
+            'invoice_id' => $this->invoice1->id,
+            'amount' => 1500.00,
+        ]);
+    }
+
+    /** @test */
     public function it_detects_excess_payment_using_store_scoped_actual_remaining_after_discounts()
     {
         PaymentDiscount::factory()->create([

@@ -571,6 +571,8 @@ class PaymentController extends ApiController
             }
 
             return $this->successResponse($payment, '还款分配成功');
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 422);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -689,6 +691,10 @@ class PaymentController extends ApiController
 
             return $this->successResponse($payment, "成功分配 {$successCount} 笔账单");
 
+        } catch (\InvalidArgumentException $e) {
+            DB::rollBack();
+
+            return $this->errorResponse('批量分配失败：'.$e->getMessage(), 422);
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -983,6 +989,8 @@ class PaymentController extends ApiController
                 return $this->successResponse($payment, '自动分配完成');
             }
 
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse('自动分配失败：'.$e->getMessage(), 422);
         } catch (\Exception $e) {
             return $this->errorResponse('自动分配失败：'.$e->getMessage(), 500);
         }
