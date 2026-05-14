@@ -16,22 +16,18 @@ class PaymentFactory extends Factory
 {
     protected $model = Payment::class;
 
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
     public function definition(): array
     {
+        $customer = Customer::factory()->create();
+
         return [
             'payment_number' => 'PAY-' . date('Ymd') . '-' . Str::random(5),
-            'store_id' => Store::factory(),
-            'customer_id' => Customer::factory(),
+            'store_id' => $customer->store_id,
+            'customer_id' => $customer->id,
             'received_by' => User::factory(),
             'amount' => fake()->randomFloat(2, 100, 5000),
             'allocated_amount' => 0,
-            'payment_date' => fake()->dateTimeBetween('-30 days', 'now'),
-            'payment_method' => fake()->randomElement(['cash', 'bank_transfer', 'alipay', 'wechat_pay', 'pos']),
+            'payment_method' => fake()->randomElement(['cash', 'bank_transfer', 'wechat', 'alipay', 'other']),
             'remarks' => fake()->optional()->sentence(),
         ];
     }

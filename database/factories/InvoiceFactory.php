@@ -16,20 +16,16 @@ class InvoiceFactory extends Factory
 {
     protected $model = Invoice::class;
 
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
     public function definition(): array
     {
         $amount = fake()->randomFloat(2, 100, 5000);
         $paidAmount = fake()->optional(0.3)->randomFloat(2, 0, $amount);
+        $customer = Customer::factory()->create();
 
         return [
             'invoice_number' => 'INV-' . date('Ymd') . '-' . Str::random(5),
-            'store_id' => Store::factory(),
-            'customer_id' => Customer::factory(),
+            'store_id' => $customer->store_id,
+            'customer_id' => $customer->id,
             'created_by' => User::factory(),
             'amount' => $amount,
             'paid_amount' => $paidAmount ?? 0,
@@ -37,7 +33,6 @@ class InvoiceFactory extends Factory
             'due_date' => fake()->optional()->dateTimeBetween('now', '+60 days'),
             'description' => fake()->optional()->sentence(),
         ];
-
     }
 
     /**
