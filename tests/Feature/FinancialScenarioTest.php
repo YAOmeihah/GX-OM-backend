@@ -298,6 +298,36 @@ class FinancialScenarioTest extends TestCase
     }
 
     /** @test */
+    public function it_calculates_bill_summary_using_actual_remaining_after_discounts()
+    {
+        $payment = Payment::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 100.00,
+            'received_by' => $this->storeOwner->id,
+        ]);
+
+        PaymentDiscount::factory()->create([
+            'payment_id' => $payment->id,
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 100.00,
+            'discount_type' => 'discount',
+            'approved_by' => $this->storeOwner->id,
+        ]);
+
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->postJson("/api/customers/{$this->customer->id}/bill-summary", [
+            'invoice_ids' => [$this->invoice1->id, $this->invoice2->id],
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.summary.total_remaining', '2235.00')
+            ->assertJsonPath('data.invoices.0.remaining_amount', '1500.00')
+            ->assertJsonPath('data.invoices.1.remaining_amount', '735.00');
+    }
+
+    /** @test */
     public function it_validates_permissions_in_the_scenario()
     {
         $payment = Payment::factory()->create([

@@ -352,6 +352,68 @@ class PaymentDiscountApiTest extends TestCase
     }
 
     /** @test */
+    public function it_rejects_manual_allocation_above_actual_remaining_after_discounts()
+    {
+        PaymentDiscount::factory()->create([
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 100.00,
+            'discount_type' => 'discount',
+            'approved_by' => $this->storeOwner->id,
+        ]);
+
+        $payment = Payment::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 800.00,
+            'received_by' => $this->storeOwner->id,
+        ]);
+
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->postJson("/api/payments/{$payment->id}/allocate", [
+            'invoice_id' => $this->invoice2->id,
+            'amount' => 736.00,
+        ]);
+
+        $response->assertStatus(422);
+
+        $this->assertDatabaseMissing('payment_allocations', [
+            'payment_id' => $payment->id,
+            'invoice_id' => $this->invoice2->id,
+        ]);
+    }
+
+    /** @test */
+    public function it_suggests_allocation_using_actual_remaining_after_discounts()
+    {
+        PaymentDiscount::factory()->create([
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 100.00,
+            'discount_type' => 'discount',
+            'approved_by' => $this->storeOwner->id,
+        ]);
+
+        $payment = Payment::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 2000.00,
+            'received_by' => $this->storeOwner->id,
+        ]);
+
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->getJson("/api/payments/{$payment->id}/allocation-suggestion?include_discount=false");
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.suggestion.allocations.1.invoice_id', $this->invoice2->id);
+
+        $this->assertEquals(735.00, $response->json('data.suggestion.allocations.1.remaining_amount'));
+        $this->assertEquals(500.00, $response->json('data.suggestion.allocations.1.suggested_amount'));
+    }
+
+    /** @test */
     public function it_includes_discount_info_in_customer_debt()
     {
         // 创建优惠减免记录

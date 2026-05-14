@@ -196,7 +196,12 @@ class Invoice extends Model
      */
     public function getActualRemainingAmountAttribute(): float
     {
-        return $this->amount - $this->paid_amount - $this->total_discount_amount;
+        $remainingAmount = \App\Helpers\MoneyHelper::subtract($this->amount, $this->paid_amount);
+        $actualRemaining = \App\Helpers\MoneyHelper::subtract($remainingAmount, $this->total_discount_amount);
+
+        return \App\Helpers\MoneyHelper::toFloat(
+            \App\Helpers\MoneyHelper::max($actualRemaining, 0)
+        );
     }
 
     /**

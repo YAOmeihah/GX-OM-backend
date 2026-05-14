@@ -281,7 +281,8 @@ class PaymentController extends ApiController
                         }
 
                         // 验证分配金额不超过账单剩余未付金额
-                        $remainingAmount = $invoice->amount - $invoice->paid_amount;
+                        $invoice->loadMissing('discounts');
+                        $remainingAmount = $invoice->actual_remaining_amount;
                         if ($allocationData['amount'] > $remainingAmount) {
                             throw new \Exception("账单 {$invoice->invoice_number} 的分配金额超过了剩余未付金额");
                         }
@@ -339,7 +340,8 @@ class PaymentController extends ApiController
                     }
 
                     // 验证分配金额不超过账单剩余未付金额
-                    $remainingAmount = $invoice->amount - $invoice->paid_amount;
+                    $invoice->loadMissing('discounts');
+                    $remainingAmount = $invoice->actual_remaining_amount;
                     if ($allocationData['amount'] > $remainingAmount) {
                         throw new \Exception("账单 {$invoice->invoice_number} 的分配金额超过了剩余未付金额");
                     }
@@ -525,7 +527,8 @@ class PaymentController extends ApiController
         }
 
         // 验证分配金额不超过账单剩余未付金额
-        $remainingAmount = $invoice->amount - $invoice->paid_amount;
+        $invoice->loadMissing('discounts');
+        $remainingAmount = $invoice->actual_remaining_amount;
         if ($validated['amount'] > $remainingAmount) {
             return $this->errorResponse('分配金额超过了账单剩余未付金额', 422);
         }
@@ -626,7 +629,8 @@ class PaymentController extends ApiController
             }
 
             // 验证分配金额不超过账单剩余未付金额
-            $invoiceRemaining = $invoice->amount - $invoice->paid_amount;
+            $invoice->loadMissing('discounts');
+            $invoiceRemaining = $invoice->actual_remaining_amount;
             if (\App\Helpers\MoneyHelper::isGreaterThan($alloc['amount'], $invoiceRemaining)) {
                 return $this->errorResponse(
                     sprintf(
