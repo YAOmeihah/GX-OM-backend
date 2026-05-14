@@ -54,7 +54,7 @@ class FormRequestTest extends TestCase
         $this->assertArrayHasKey('store_id', $rules);
         $this->assertArrayHasKey('customer_id', $rules);
         $this->assertArrayHasKey('amount', $rules);
-        $this->assertArrayHasKey('payment_date', $rules);
+        $this->assertArrayNotHasKey('payment_date', $rules);
         $this->assertArrayHasKey('payment_method', $rules);
 
         // 验证store_id规则包含required
@@ -124,7 +124,7 @@ class FormRequestTest extends TestCase
 
         $this->assertArrayHasKey('store_id', $rules);
         $this->assertArrayHasKey('customer_id', $rules);
-        $this->assertArrayHasKey('invoice_date', $rules);
+        $this->assertArrayNotHasKey('invoice_date', $rules);
     }
 
     /** @test */
@@ -168,7 +168,6 @@ class FormRequestTest extends TestCase
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'amount' => 1000.00,
-            'payment_date' => now()->format('Y-m-d'),
             'payment_method' => 'cash',
         ];
 
@@ -185,7 +184,6 @@ class FormRequestTest extends TestCase
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'amount' => -100, // 无效的负数
-            'payment_date' => now()->format('Y-m-d'),
             'payment_method' => 'cash',
         ];
 
@@ -203,7 +201,6 @@ class FormRequestTest extends TestCase
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'amount' => 1000.00,
-            'payment_date' => now()->format('Y-m-d'),
             'payment_method' => 'invalid_method', // 无效的支付方式
         ];
 
@@ -251,7 +248,6 @@ class FormRequestTest extends TestCase
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'amount' => 500.00,
-            'invoice_date' => now()->format('Y-m-d'),
         ];
 
         $request = new StoreInvoiceRequest();
@@ -266,7 +262,6 @@ class FormRequestTest extends TestCase
         $data = [
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
-            'invoice_date' => now()->format('Y-m-d'),
             'items' => [
                 [
                     'item_name' => '商品A',

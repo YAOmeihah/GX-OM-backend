@@ -109,7 +109,6 @@ class AuditLog extends Model
         'created_by'        => '创建人',
         // Payment
         'payment_number'    => '还款编号',
-        'payment_date'      => '还款日期',
         'payment_method'    => '还款方式',
         'remaining_amount'  => '剩余金额',
         // Customer

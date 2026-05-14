@@ -47,7 +47,6 @@ class InvoiceController extends ApiController
      *         "amount": "1000.00",
      *         "paid_amount": "500.00",
      *         "status": "partially_paid",
-     *         "invoice_date": "2024-01-01",
      *         "due_date": "2024-02-01",
      *         "description": "商品销售",
      *         "created_at": "2024-01-01T00:00:00.000000Z",
@@ -354,7 +353,6 @@ class InvoiceController extends ApiController
      *     "amount": "1000.00",
      *     "paid_amount": "500.00",
      *     "status": "partially_paid",
-     *     "invoice_date": "2024-01-01",
      *     "due_date": "2024-02-01",
      *     "description": "商品销售",
      *     "created_at": "2024-01-01T00:00:00.000000Z",
@@ -463,7 +461,6 @@ class InvoiceController extends ApiController
      * @urlParam id integer required 账单ID Example: 1
      *
      * @bodyParam amount number 账单总金额（仅无付款时可修改），最小0.01 Example: 1500.00
-     * @bodyParam invoice_date string 账单日期(YYYY-MM-DD格式)（仅无付款时可修改） Example: 2024-01-02
      * @bodyParam due_date string 到期日期(YYYY-MM-DD格式)（仅无付款时可修改） Example: 2024-02-15
      * @bodyParam description string 账单描述/备注 Example: 商品销售（已更新）
      * @bodyParam items array 账单明细项目列表（仅无付款时可修改）
@@ -483,7 +480,6 @@ class InvoiceController extends ApiController
      *     "amount": "1500.00",
      *     "paid_amount": "0.00",
      *     "status": "unpaid",
-     *     "invoice_date": "2024-01-02",
      *     "due_date": "2024-02-15",
      *     "description": "商品销售（已更新）",
      *     "items": [

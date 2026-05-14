@@ -44,8 +44,7 @@ class UpdateInvoiceRequest extends FormRequest
         return [
             'customer_id' => 'sometimes|exists:customers,id',
             'amount' => 'nullable|numeric|min:0.01',
-            'invoice_date' => 'sometimes|required',
-            'due_date' => 'nullable|date|after_or_equal:invoice_date',
+            'due_date' => 'nullable|date',
             'description' => 'nullable|string',
             'items' => 'nullable|array|min:1',
             'items.*.line_uid' => 'nullable|string|size:36|distinct',
@@ -65,10 +64,7 @@ class UpdateInvoiceRequest extends FormRequest
         return [
             'amount.numeric' => '账单金额必须是数字',
             'amount.min' => '账单金额最小为0.01',
-            'invoice_date.required' => '账单日期不能为空',
-            'invoice_date.date' => '账单日期格式不正确',
             'due_date.date' => '到期日期格式不正确',
-            'due_date.after_or_equal' => '到期日期必须晚于或等于账单日期',
             'items.array' => '明细项目格式不正确',
             'items.min' => '明细项目至少包含一项',
             'items.*.id.exists' => '明细项目ID不存在',

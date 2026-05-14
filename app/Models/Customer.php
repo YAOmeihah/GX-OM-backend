@@ -212,7 +212,7 @@ class Customer extends Model
             $paymentsQuery->where('store_id', $storeId);
         }
 
-        $payments = $paymentsQuery->orderBy('payment_date', 'desc')->get();
+        $payments = $paymentsQuery->orderBy('created_at', 'desc')->get();
 
         return $payments->map(function ($payment) {
             return [

@@ -65,8 +65,6 @@ class StorePaymentRequest extends FormRequest
             'amount.required' => '还款金额不能为空',
             'amount.numeric' => '还款金额必须是数字',
             'amount.min' => '还款金额最小为0.01',
-            'payment_date.required' => '还款日期不能为空',
-            'payment_date.date' => '还款日期格式不正确',
             'payment_method.required' => '支付方式不能为空',
             'payment_method.in' => '支付方式不正确，可选值：cash, bank_transfer, wechat, alipay, other',
             'reference_number.max' => '参考号最大255字符',

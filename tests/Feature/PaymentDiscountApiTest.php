@@ -137,7 +137,6 @@ class PaymentDiscountApiTest extends TestCase
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'amount' => 2300.00,
-            'payment_date' => now()->format('Y-m-d'),
             'payment_method' => 'cash',
             'apply_discount' => true,
             'discount_data' => [

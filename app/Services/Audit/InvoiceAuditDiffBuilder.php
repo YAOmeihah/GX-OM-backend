@@ -9,7 +9,7 @@ class InvoiceAuditDiffBuilder
      */
     private const BASIC_FIELDS = [
         'customer_id', 'amount', 'due_date', 'description', 'status',
-        'paid_amount', 'invoice_date',
+        'paid_amount',
     ];
 
     /**

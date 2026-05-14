@@ -259,10 +259,10 @@ class DashboardController extends ApiController
         });
 
         if ($startDate) {
-            $invoiceQuery->where('invoice_date', '>=', $startDate);
+            $invoiceQuery->where('created_at', '>=', $startDate);
         }
         if ($endDate) {
-            $invoiceQuery->where('invoice_date', '<=', $endDate);
+            $invoiceQuery->where('created_at', '<=', $endDate);
         }
 
         $invoiceStats = $invoiceQuery->selectRaw('
@@ -278,10 +278,10 @@ class DashboardController extends ApiController
         });
 
         if ($startDate) {
-            $paymentQuery->where('payment_date', '>=', $startDate);
+            $paymentQuery->where('created_at', '>=', $startDate);
         }
         if ($endDate) {
-            $paymentQuery->where('payment_date', '<=', $endDate);
+            $paymentQuery->where('created_at', '<=', $endDate);
         }
 
         $paymentStats = $paymentQuery->selectRaw('
@@ -296,9 +296,9 @@ class DashboardController extends ApiController
             $storeStats = Store::with([
                 'invoices' => function ($query) use ($startDate, $endDate) {
                     if ($startDate)
-                        $query->where('invoice_date', '>=', $startDate);
+                        $query->where('created_at', '>=', $startDate);
                     if ($endDate)
-                        $query->where('invoice_date', '<=', $endDate);
+                        $query->where('created_at', '<=', $endDate);
                 }
             ])->get()->map(function ($store) {
                 return [

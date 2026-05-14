@@ -56,7 +56,6 @@ class FinancialScenarioTest extends TestCase
             'amount' => 1500.00,
             'paid_amount' => 0,
             'status' => 'unpaid',
-            'invoice_date' => now()->subDays(10),
             'due_date' => now()->addDays(20)
         ]);
 
@@ -67,7 +66,6 @@ class FinancialScenarioTest extends TestCase
             'amount' => 835.00,
             'paid_amount' => 0,
             'status' => 'unpaid',
-            'invoice_date' => now()->subDays(5),
             'due_date' => now()->addDays(25)
         ]);
     }
@@ -86,7 +84,6 @@ class FinancialScenarioTest extends TestCase
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'amount' => 2300.00,
-            'payment_date' => now()->format('Y-m-d'),
             'payment_method' => 'cash',
             'remarks' => '上门收款',
             'apply_discount' => true,

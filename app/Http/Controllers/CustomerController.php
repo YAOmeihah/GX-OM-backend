@@ -235,8 +235,7 @@ class CustomerController extends ApiController
      *         "invoice_number": "MAIN-20240101-ABC12",
      *         "amount": "1000.00",
      *         "paid_amount": "500.00",
-     *         "status": "partially_paid",
-     *         "invoice_date": "2024-01-01"
+     *         "status": "partially_paid"
      *       }
      *     ],
      *     "payments": [
@@ -244,7 +243,6 @@ class CustomerController extends ApiController
      *         "id": 1,
      *         "payment_number": "PAY-MAIN-20240101-XYZ99",
      *         "amount": "500.00",
-     *         "payment_date": "2024-01-05",
      *         "payment_method": "cash"
      *       }
      *     ]
