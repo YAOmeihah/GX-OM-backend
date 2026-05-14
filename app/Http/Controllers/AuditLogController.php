@@ -100,7 +100,7 @@ class AuditLogController extends ApiController
         $query = AuditLog::with([
             'user:id,name',
             'businessStore:id,name',
-            'actorStore:id,name'
+            'actorStore:id,name',
         ]);
 
         // 获取视角参数
@@ -126,7 +126,7 @@ class AuditLogController extends ApiController
             $storeIds = $this->getUserStoreIds();
 
             $query->where('scope_type', 'store')
-                  ->whereIn('business_store_id', $storeIds);
+                ->whereIn('business_store_id', $storeIds);
 
             // 如果指定了门店，进一步过滤
             if ($storeId && in_array($storeId, $storeIds)) {
@@ -187,14 +187,14 @@ class AuditLogController extends ApiController
         $logs->getCollection()->transform(function ($log) {
             $logArray = $log->toArray();
 
-            if (!empty($log->change_payload)) {
+            if (! empty($log->change_payload)) {
                 $payload = $log->change_payload;
 
                 $logArray['has_structured_changes'] = true;
-                $logArray['summary_title']    = $payload['summary']['title'] ?? null;
+                $logArray['summary_title'] = $payload['summary']['title'] ?? null;
                 $logArray['summary_subtitle'] = $payload['summary']['subtitle'] ?? null;
                 $logArray['summary_highlights'] = $payload['summary']['highlights'] ?? [];
-                $logArray['change_stats']     = $payload['stats'] ?? null;
+                $logArray['change_stats'] = $payload['stats'] ?? null;
             } else {
                 $logArray['has_structured_changes'] = false;
             }
@@ -270,12 +270,12 @@ class AuditLogController extends ApiController
     {
         $log = AuditLog::with(['user:id,name,email'])->find($id);
 
-        if (!$log) {
+        if (! $log) {
             return $this->errorResponse('审计日志不存在', 404);
         }
 
         // 非管理员需验证门店访问权限
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             // 全局日志只有管理员可见
             if ($log->scope_type === 'global') {
                 return $this->errorResponse('无权查看此日志', 403);
@@ -283,7 +283,7 @@ class AuditLogController extends ApiController
 
             // 门店业务日志需验证归属权限
             if ($log->scope_type === 'store') {
-                if ($log->business_store_id === null || !$this->belongsToStore($log->business_store_id)) {
+                if ($log->business_store_id === null || ! $this->belongsToStore($log->business_store_id)) {
                     return $this->errorResponse('无权查看此日志', 403);
                 }
             }
@@ -355,7 +355,7 @@ class AuditLogController extends ApiController
         $storeId = null;
         $viewScope = $request->get('view_scope', 'all');
 
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             $storeIds = $this->getUserStoreIds();
 
             // 如果请求指定了 store_id，验证权限后使用
@@ -457,7 +457,7 @@ class AuditLogController extends ApiController
         $modelType = $this->resolveModelType($validated['auditable_type']);
 
         // 非管理员：限制只能查看所属门店的日志
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             $storeIds = $this->getUserStoreIds();
         }
 
@@ -466,7 +466,7 @@ class AuditLogController extends ApiController
             ->where('auditable_id', $validated['auditable_id']);
 
         // 非管理员限制只能查看所属门店的业务日志
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             $query->where('scope_type', 'store')
                 ->whereIn('business_store_id', $storeIds);
         }
@@ -541,7 +541,7 @@ class AuditLogController extends ApiController
             $storeIds = $this->getUserStoreIds();
 
             $query->where('scope_type', 'store')
-                  ->whereIn('business_store_id', $storeIds);
+                ->whereIn('business_store_id', $storeIds);
 
             // 如果指定了门店，进一步过滤
             if ($storeId && in_array($storeId, $storeIds)) {
@@ -574,7 +574,7 @@ class AuditLogController extends ApiController
             'actions' => $existingActions->map(function ($action) {
                 return [
                     'value' => $action,
-                    'label' => AuditLog::ACTION_LABELS[$action]
+                    'label' => AuditLog::ACTION_LABELS[$action],
                 ];
             })->values(),
             'models' => $existingModels->map(function ($type) {
@@ -626,10 +626,10 @@ class AuditLogController extends ApiController
      *   "login_url": "http://localhost/api/login"
      * }
      */
-    public function userActivity(Request $request, int $userId = null)
+    public function userActivity(Request $request, ?int $userId = null)
     {
         // 非管理员只能查看自己的日志
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             $userId = auth()->id();
         } elseif ($userId === null) {
             $userId = $request->get('user_id', auth()->id());
@@ -670,7 +670,7 @@ class AuditLogController extends ApiController
             'invoice_item' => 'App\Models\InvoiceItem',
         ];
 
-        return $typeMap[strtolower($type)] ?? "App\\Models\\" . ucfirst($type);
+        return $typeMap[strtolower($type)] ?? 'App\\Models\\'.ucfirst($type);
     }
 
     /**

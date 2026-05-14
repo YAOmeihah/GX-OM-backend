@@ -29,30 +29,30 @@ class InvoiceAuditDiffBuilder
 
         return [
             'schema_version' => 1,
-            'domain'         => 'invoice',
-            'event'          => 'invoice.created',
-            'target'         => [
+            'domain' => 'invoice',
+            'event' => 'invoice.created',
+            'target' => [
                 'invoice_number' => $invoiceNumber,
-                'customer_id'    => $customerId,
+                'customer_id' => $customerId,
             ],
             'summary' => [
-                'title'      => '创建账单',
-                'subtitle'   => $itemCount > 0 ? "创建了 {$itemCount} 条明细" : '创建空账单',
+                'title' => '创建账单',
+                'subtitle' => $itemCount > 0 ? "创建了 {$itemCount} 条明细" : '创建空账单',
                 'highlights' => $itemCount > 0 ? [['type' => 'added', 'count' => $itemCount]] : [],
             ],
             'stats' => [
-                'basic_change_count'  => 0,
-                'item_added_count'    => $itemCount,
-                'item_removed_count'  => 0,
-                'item_updated_count'  => 0,
-                'total_change_count'  => $itemCount,
+                'basic_change_count' => 0,
+                'item_added_count' => $itemCount,
+                'item_removed_count' => 0,
+                'item_updated_count' => 0,
+                'total_change_count' => $itemCount,
             ],
             'basic_changes' => $this->extractBasicFields($data),
-            'item_changes'  => [
-                'added'   => array_map(fn($item) => [
-                    'line_uid'     => $item['line_uid'] ?? null,
+            'item_changes' => [
+                'added' => array_map(fn ($item) => [
+                    'line_uid' => $item['line_uid'] ?? null,
                     'display_name' => $item['item_name'] ?? '',
-                    'item'         => $item,
+                    'item' => $item,
                 ], $items),
                 'removed' => [],
                 'updated' => [],
@@ -60,7 +60,7 @@ class InvoiceAuditDiffBuilder
             'financial_effect' => [
                 'old_amount' => null,
                 'new_amount' => $data['amount'] ?? null,
-                'delta'      => $data['amount'] ?? null,
+                'delta' => $data['amount'] ?? null,
             ],
         ];
     }
@@ -75,38 +75,38 @@ class InvoiceAuditDiffBuilder
 
         return [
             'schema_version' => 1,
-            'domain'         => 'invoice',
-            'event'          => 'invoice.deleted',
-            'target'         => [
+            'domain' => 'invoice',
+            'event' => 'invoice.deleted',
+            'target' => [
                 'invoice_number' => $invoiceNumber,
-                'customer_id'    => $customerId,
+                'customer_id' => $customerId,
             ],
             'summary' => [
-                'title'      => '删除账单',
-                'subtitle'   => $itemCount > 0 ? "删除了 {$itemCount} 条明细" : '删除空账单',
+                'title' => '删除账单',
+                'subtitle' => $itemCount > 0 ? "删除了 {$itemCount} 条明细" : '删除空账单',
                 'highlights' => $itemCount > 0 ? [['type' => 'removed', 'count' => $itemCount]] : [],
             ],
             'stats' => [
-                'basic_change_count'  => 0,
-                'item_added_count'    => 0,
-                'item_removed_count'  => $itemCount,
-                'item_updated_count'  => 0,
-                'total_change_count'  => $itemCount,
+                'basic_change_count' => 0,
+                'item_added_count' => 0,
+                'item_removed_count' => $itemCount,
+                'item_updated_count' => 0,
+                'total_change_count' => $itemCount,
             ],
             'basic_changes' => $this->extractBasicFieldsForDelete($data),
-            'item_changes'  => [
-                'added'   => [],
-                'removed' => array_map(fn($item) => [
-                    'line_uid'     => $item['line_uid'] ?? null,
+            'item_changes' => [
+                'added' => [],
+                'removed' => array_map(fn ($item) => [
+                    'line_uid' => $item['line_uid'] ?? null,
                     'display_name' => $item['item_name'] ?? '',
-                    'item'         => $item,
+                    'item' => $item,
                 ], $items),
                 'updated' => [],
             ],
             'financial_effect' => [
                 'old_amount' => $data['amount'] ?? null,
                 'new_amount' => null,
-                'delta'      => isset($data['amount']) ? -((float)$data['amount']) : null,
+                'delta' => isset($data['amount']) ? -((float) $data['amount']) : null,
             ],
         ];
     }
@@ -121,9 +121,9 @@ class InvoiceAuditDiffBuilder
         foreach (self::BASIC_FIELDS as $field) {
             if (isset($data[$field])) {
                 $changes[] = [
-                    'field'  => $field,
+                    'field' => $field,
                     'before' => null,
-                    'after'  => $data[$field],
+                    'after' => $data[$field],
                 ];
             }
         }
@@ -141,9 +141,9 @@ class InvoiceAuditDiffBuilder
         foreach (self::BASIC_FIELDS as $field) {
             if (isset($data[$field])) {
                 $changes[] = [
-                    'field'  => $field,
+                    'field' => $field,
                     'before' => $data[$field],
-                    'after'  => null,
+                    'after' => null,
                 ];
             }
         }
@@ -157,36 +157,36 @@ class InvoiceAuditDiffBuilder
     public function build(array $oldData, array $newData, string $invoiceNumber, ?int $customerId = null): array
     {
         $basicChanges = $this->diffBasicFields($oldData, $newData);
-        $itemChanges  = $this->diffItems($oldData['items'] ?? [], $newData['items'] ?? []);
+        $itemChanges = $this->diffItems($oldData['items'] ?? [], $newData['items'] ?? []);
 
-        $addedCount   = count($itemChanges['added']);
+        $addedCount = count($itemChanges['added']);
         $removedCount = count($itemChanges['removed']);
         $updatedCount = count($itemChanges['updated']);
         $totalItemChanges = $addedCount + $removedCount + $updatedCount;
 
         return [
             'schema_version' => 1,
-            'domain'         => 'invoice',
-            'event'          => 'invoice.updated',
-            'target'         => [
+            'domain' => 'invoice',
+            'event' => 'invoice.updated',
+            'target' => [
                 'invoice_number' => $invoiceNumber,
-                'customer_id'    => $customerId,
+                'customer_id' => $customerId,
             ],
             'summary' => $this->buildSummary($basicChanges, $addedCount, $removedCount, $updatedCount),
-            'stats'   => [
-                'basic_change_count'  => count($basicChanges),
-                'item_added_count'    => $addedCount,
-                'item_removed_count'  => $removedCount,
-                'item_updated_count'  => $updatedCount,
-                'total_change_count'  => count($basicChanges) + $totalItemChanges,
+            'stats' => [
+                'basic_change_count' => count($basicChanges),
+                'item_added_count' => $addedCount,
+                'item_removed_count' => $removedCount,
+                'item_updated_count' => $updatedCount,
+                'total_change_count' => count($basicChanges) + $totalItemChanges,
             ],
             'basic_changes' => $basicChanges,
-            'item_changes'  => $itemChanges,
+            'item_changes' => $itemChanges,
             'financial_effect' => [
                 'old_amount' => $oldData['amount'] ?? null,
                 'new_amount' => $newData['amount'] ?? null,
-                'delta'      => isset($oldData['amount'], $newData['amount'])
-                    ? round((float)$newData['amount'] - (float)$oldData['amount'], 2)
+                'delta' => isset($oldData['amount'], $newData['amount'])
+                    ? round((float) $newData['amount'] - (float) $oldData['amount'], 2)
                     : null,
             ],
         ];
@@ -205,7 +205,7 @@ class InvoiceAuditDiffBuilder
 
             // 数值类型做精度归一化再比较
             if (is_numeric($oldVal) && is_numeric($newVal)) {
-                if ((float)$oldVal === (float)$newVal) {
+                if ((float) $oldVal === (float) $newVal) {
                     continue;
                 }
             } elseif ($oldVal === $newVal) {
@@ -215,7 +215,7 @@ class InvoiceAuditDiffBuilder
             $changes[] = [
                 'field' => $field,
                 'before' => $oldVal,
-                'after'  => $newVal,
+                'after' => $newVal,
             ];
         }
 
@@ -229,51 +229,51 @@ class InvoiceAuditDiffBuilder
     {
         $oldMap = [];
         foreach ($oldItems as $item) {
-            if (!empty($item['line_uid'])) {
+            if (! empty($item['line_uid'])) {
                 $oldMap[$item['line_uid']] = $item;
             }
         }
 
         $newMap = [];
         foreach ($newItems as $item) {
-            if (!empty($item['line_uid'])) {
+            if (! empty($item['line_uid'])) {
                 $newMap[$item['line_uid']] = $item;
             }
         }
 
-        $added   = [];
+        $added = [];
         $removed = [];
         $updated = [];
 
         // 新增：在新列表里有、旧列表里没有
         foreach ($newMap as $uid => $newItem) {
-            if (!isset($oldMap[$uid])) {
+            if (! isset($oldMap[$uid])) {
                 $added[] = [
-                    'line_uid'     => $uid,
+                    'line_uid' => $uid,
                     'display_name' => $newItem['item_name'] ?? '',
-                    'item'         => $newItem,
+                    'item' => $newItem,
                 ];
             }
         }
 
         // 删除：在旧列表里有、新列表里没有
         foreach ($oldMap as $uid => $oldItem) {
-            if (!isset($newMap[$uid])) {
+            if (! isset($newMap[$uid])) {
                 $removed[] = [
-                    'line_uid'     => $uid,
+                    'line_uid' => $uid,
                     'display_name' => $oldItem['item_name'] ?? '',
-                    'item'         => $oldItem,
+                    'item' => $oldItem,
                 ];
             }
         }
 
         // 修改：两边都有，逐字段比对
         foreach ($newMap as $uid => $newItem) {
-            if (!isset($oldMap[$uid])) {
+            if (! isset($oldMap[$uid])) {
                 continue;
             }
 
-            $oldItem      = $oldMap[$uid];
+            $oldItem = $oldMap[$uid];
             $fieldChanges = [];
 
             foreach (self::ITEM_FIELDS as $field) {
@@ -281,7 +281,7 @@ class InvoiceAuditDiffBuilder
                 $newVal = $newItem[$field] ?? null;
 
                 if (is_numeric($oldVal) && is_numeric($newVal)) {
-                    if ((float)$oldVal === (float)$newVal) {
+                    if ((float) $oldVal === (float) $newVal) {
                         continue;
                     }
                 } elseif ($oldVal === $newVal) {
@@ -289,18 +289,18 @@ class InvoiceAuditDiffBuilder
                 }
 
                 $fieldChanges[] = [
-                    'field'  => $field,
+                    'field' => $field,
                     'before' => $oldVal,
-                    'after'  => $newVal,
+                    'after' => $newVal,
                 ];
             }
 
-            if (!empty($fieldChanges)) {
+            if (! empty($fieldChanges)) {
                 $updated[] = [
-                    'line_uid'      => $uid,
-                    'display_name'  => $newItem['item_name'] ?? '',
-                    'before'        => $oldItem,
-                    'after'         => $newItem,
+                    'line_uid' => $uid,
+                    'display_name' => $newItem['item_name'] ?? '',
+                    'before' => $oldItem,
+                    'after' => $newItem,
                     'field_changes' => $fieldChanges,
                 ];
             }
@@ -316,7 +316,7 @@ class InvoiceAuditDiffBuilder
     {
         $parts = [];
 
-        if (!empty($basicChanges)) {
+        if (! empty($basicChanges)) {
             $parts[] = '修改了基础信息';
         }
         if ($added > 0) {
@@ -330,13 +330,19 @@ class InvoiceAuditDiffBuilder
         }
 
         $highlights = [];
-        if ($added > 0)   $highlights[] = ['type' => 'added',   'count' => $added];
-        if ($removed > 0) $highlights[] = ['type' => 'removed', 'count' => $removed];
-        if ($updated > 0) $highlights[] = ['type' => 'updated', 'count' => $updated];
+        if ($added > 0) {
+            $highlights[] = ['type' => 'added',   'count' => $added];
+        }
+        if ($removed > 0) {
+            $highlights[] = ['type' => 'removed', 'count' => $removed];
+        }
+        if ($updated > 0) {
+            $highlights[] = ['type' => 'updated', 'count' => $updated];
+        }
 
         return [
-            'title'      => '修改账单',
-            'subtitle'   => empty($parts) ? '无实质变更' : implode('，', $parts),
+            'title' => '修改账单',
+            'subtitle' => empty($parts) ? '无实质变更' : implode('，', $parts),
             'highlights' => $highlights,
         ];
     }

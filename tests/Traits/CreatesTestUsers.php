@@ -8,7 +8,7 @@ use App\Models\User;
 
 /**
  * 测试用户创建辅助 Trait
- * 
+ *
  * 提供统一的用户创建方法，正确处理角色关联
  */
 trait CreatesTestUsers
@@ -20,6 +20,7 @@ trait CreatesTestUsers
     {
         $user = User::factory()->create($attributes);
         $this->assignRole($user, 'admin');
+
         return $user;
     }
 
@@ -68,12 +69,12 @@ trait CreatesTestUsers
     {
         $role = Role::where('slug', $roleSlug)->first();
 
-        if (!$role) {
+        if (! $role) {
             // 如果角色不存在，创建一个
             $role = Role::create([
                 'name' => ucfirst(str_replace('_', ' ', $roleSlug)),
                 'slug' => $roleSlug,
-                'description' => "Test role: {$roleSlug}"
+                'description' => "Test role: {$roleSlug}",
             ]);
         }
 

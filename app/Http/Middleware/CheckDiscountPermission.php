@@ -14,22 +14,22 @@ class CheckDiscountPermission
      *
      * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
      */
-    public function handle(Request $request, Closure $next, string $discountType = null): Response
+    public function handle(Request $request, Closure $next, ?string $discountType = null): Response
     {
         $user = Auth::user();
-        
-        if (!$user) {
+
+        if (! $user) {
             return response()->json([
                 'success' => false,
-                'message' => '未认证用户'
+                'message' => '未认证用户',
             ], 401);
         }
 
         // 获取门店ID（从路由参数或请求参数中）
         $storeId = $request->route('store_id') ?? $request->input('store_id');
-        
+
         // 如果是还款相关的优惠减免，从还款记录中获取门店ID
-        if (!$storeId && $request->route('id')) {
+        if (! $storeId && $request->route('id')) {
             $paymentId = $request->route('id');
             $payment = \App\Models\Payment::find($paymentId);
             if ($payment) {
@@ -43,29 +43,29 @@ class CheckDiscountPermission
         }
 
         // 检查用户是否属于该门店
-        if ($storeId && !$user->stores()->where('store_id', $storeId)->exists()) {
+        if ($storeId && ! $user->stores()->where('store_id', $storeId)->exists()) {
             return response()->json([
                 'success' => false,
-                'message' => '您没有权限访问该门店的数据'
+                'message' => '您没有权限访问该门店的数据',
             ], 403);
         }
 
         // 根据折扣类型检查权限
         if ($discountType) {
             $hasPermission = $this->checkDiscountTypePermission($user, $discountType, $storeId);
-            
-            if (!$hasPermission) {
+
+            if (! $hasPermission) {
                 return response()->json([
                     'success' => false,
-                    'message' => "您没有权限进行{$discountType}类型的优惠减免"
+                    'message' => "您没有权限进行{$discountType}类型的优惠减免",
                 ], 403);
             }
         } else {
             // 通用的优惠减免权限检查
-            if (!$this->hasGeneralDiscountPermission($user, $storeId)) {
+            if (! $this->hasGeneralDiscountPermission($user, $storeId)) {
                 return response()->json([
                     'success' => false,
-                    'message' => '您没有权限进行优惠减免操作'
+                    'message' => '您没有权限进行优惠减免操作',
                 ], 403);
             }
         }
@@ -76,16 +76,16 @@ class CheckDiscountPermission
     /**
      * 检查特定折扣类型的权限
      */
-    private function checkDiscountTypePermission($user, string $discountType, int $storeId = null): bool
+    private function checkDiscountTypePermission($user, string $discountType, ?int $storeId = null): bool
     {
         $discountConfig = config("payment.discount_types.{$discountType}");
-        
-        if (!$discountConfig) {
+
+        if (! $discountConfig) {
             return false;
         }
 
         $allowedRoles = $discountConfig['approval_roles'] ?? [];
-        
+
         // 检查用户是否有允许的角色
         foreach ($allowedRoles as $role) {
             if ($user->hasRole($role)) {
@@ -93,6 +93,7 @@ class CheckDiscountPermission
                 if (in_array($role, ['store_owner', 'store_staff']) && $storeId) {
                     return $user->stores()->where('store_id', $storeId)->exists();
                 }
+
                 return true;
             }
         }
@@ -103,13 +104,14 @@ class CheckDiscountPermission
     /**
      * 检查通用的优惠减免权限
      */
-    private function hasGeneralDiscountPermission($user, int $storeId = null): bool
+    private function hasGeneralDiscountPermission($user, ?int $storeId = null): bool
     {
         // 店长可以进行优惠减免
         if ($user->hasRole('store_owner')) {
             if ($storeId) {
                 return $user->stores()->where('store_id', $storeId)->exists();
             }
+
             return true;
         }
 
@@ -120,6 +122,7 @@ class CheckDiscountPermission
                 if ($storeId) {
                     return $user->stores()->where('store_id', $storeId)->exists();
                 }
+
                 return true;
             }
         }
@@ -133,13 +136,13 @@ class CheckDiscountPermission
     public static function checkDiscountAmount($user, string $discountType, float $amount): bool
     {
         $discountConfig = config("payment.discount_types.{$discountType}");
-        
-        if (!$discountConfig) {
+
+        if (! $discountConfig) {
             return false;
         }
 
         $maxAmount = $discountConfig['max_amount'] ?? 0;
-        
+
         // 系统管理员不受金额限制
         if ($user->hasRole('admin')) {
             return true;
@@ -153,6 +156,7 @@ class CheckDiscountPermission
         // 店员只能进行小额优惠减免
         if ($user->hasRole('store_staff')) {
             $staffMaxAmount = min($maxAmount, config('payment.auto_discount.max_amount', 100));
+
             return $amount <= $staffMaxAmount;
         }
 
@@ -165,8 +169,8 @@ class CheckDiscountPermission
     public static function requiresApproval(string $discountType, float $amount): bool
     {
         $discountConfig = config("payment.discount_types.{$discountType}");
-        
-        if (!$discountConfig) {
+
+        if (! $discountConfig) {
             return true;
         }
 
@@ -177,6 +181,7 @@ class CheckDiscountPermission
 
         // 检查金额是否超过自动审批限制
         $autoApprovalLimit = config('payment.auto_discount.max_amount', 100);
+
         return $amount > $autoApprovalLimit;
     }
 }

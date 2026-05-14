@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Store extends Model
 {
-    use HasFactory, Auditable;
+    use Auditable, HasFactory;
 
     /**
      * 审计日志排除的字段

@@ -17,11 +17,11 @@ class CheckCustomerStoreAccess
     public function handle(Request $request, Closure $next): Response
     {
         $user = Auth::user();
-        
-        if (!$user) {
+
+        if (! $user) {
             return response()->json([
                 'success' => false,
-                'message' => '未认证用户'
+                'message' => '未认证用户',
             ], 401);
         }
 
@@ -32,20 +32,20 @@ class CheckCustomerStoreAccess
 
         // 获取用户有权限访问的门店ID列表
         $userStoreIds = $user->stores()->pluck('store_id')->toArray();
-        
+
         if (empty($userStoreIds)) {
             return response()->json([
                 'success' => false,
-                'message' => '您没有权限访问任何门店的数据'
+                'message' => '您没有权限访问任何门店的数据',
             ], 403);
         }
 
         // 如果请求中指定了门店ID，验证权限
         $requestedStoreId = $request->input('store_id');
-        if ($requestedStoreId && !in_array($requestedStoreId, $userStoreIds)) {
+        if ($requestedStoreId && ! in_array($requestedStoreId, $userStoreIds)) {
             return response()->json([
                 'success' => false,
-                'message' => '您没有权限访问该门店的数据'
+                'message' => '您没有权限访问该门店的数据',
             ], 403);
         }
 

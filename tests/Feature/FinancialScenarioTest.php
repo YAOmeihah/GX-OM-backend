@@ -2,17 +2,16 @@
 
 namespace Tests\Feature;
 
-use Tests\TestCase;
-use Tests\Traits\CreatesTestUsers;
-use App\Models\User;
-use App\Models\Store;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentDiscount;
-use App\Services\PaymentDiscountService;
+use App\Models\Store;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
+use Tests\TestCase;
+use Tests\Traits\CreatesTestUsers;
 
 /**
  * 测试用户描述的具体财务场景：
@@ -22,13 +21,18 @@ use Laravel\Sanctum\Sanctum;
  */
 class FinancialScenarioTest extends TestCase
 {
-    use RefreshDatabase, CreatesTestUsers;
+    use CreatesTestUsers, RefreshDatabase;
 
     protected User $storeOwner;
+
     protected User $storeStaff;
+
     protected Store $store;
+
     protected Customer $customer;
+
     protected Invoice $invoice1;
+
     protected Invoice $invoice2;
 
     protected function setUp(): void
@@ -56,7 +60,7 @@ class FinancialScenarioTest extends TestCase
             'amount' => 1500.00,
             'paid_amount' => 0,
             'status' => 'unpaid',
-            'due_date' => now()->addDays(20)
+            'due_date' => now()->addDays(20),
         ]);
 
         $this->invoice2 = Invoice::factory()->create([
@@ -66,7 +70,7 @@ class FinancialScenarioTest extends TestCase
             'amount' => 835.00,
             'paid_amount' => 0,
             'status' => 'unpaid',
-            'due_date' => now()->addDays(25)
+            'due_date' => now()->addDays(25),
         ]);
     }
 
@@ -86,15 +90,25 @@ class FinancialScenarioTest extends TestCase
             'amount' => 2300.00,
             'payment_method' => 'cash',
             'remarks' => '上门收款',
+            'allocations' => [
+                [
+                    'invoice_id' => $this->invoice1->id,
+                    'amount' => 1500.00,
+                ],
+                [
+                    'invoice_id' => $this->invoice2->id,
+                    'amount' => 800.00,
+                ],
+            ],
             'apply_discount' => true,
             'discount_data' => [
                 [
                     'invoice_id' => $this->invoice2->id,
                     'amount' => 35.00,
                     'type' => 'discount',
-                    'reason' => '优惠抹零'
-                ]
-            ]
+                    'reason' => '优惠抹零',
+                ],
+            ],
         ];
 
         $response = $this->postJson('/api/payments', $paymentData);
@@ -102,7 +116,7 @@ class FinancialScenarioTest extends TestCase
         $response->assertStatus(201)
             ->assertJson([
                 'success' => true,
-                'message' => '还款记录创建成功，已处理优惠抹零'
+                'message' => '还款记录创建成功，已处理优惠抹零',
             ]);
 
         // 第三步：验证还款记录创建成功
@@ -147,7 +161,7 @@ class FinancialScenarioTest extends TestCase
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'amount' => 2300.00,
-            'received_by' => $this->storeOwner->id
+            'received_by' => $this->storeOwner->id,
         ]);
 
         Sanctum::actingAs($this->storeOwner);
@@ -163,10 +177,10 @@ class FinancialScenarioTest extends TestCase
                         'gap_amount' => 35.00,
                         'total_debt' => 2335.00,
                         'payment_amount' => 2300.00,
-                        'can_apply_discount' => true
+                        'can_apply_discount' => true,
                     ],
-                    'can_approve_discount' => true
-                ]
+                    'can_approve_discount' => true,
+                ],
             ]);
 
         // 验证返回的未付账单信息
@@ -184,7 +198,7 @@ class FinancialScenarioTest extends TestCase
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'amount' => 2300.00,
-            'received_by' => $this->storeOwner->id
+            'received_by' => $this->storeOwner->id,
         ]);
 
         Sanctum::actingAs($this->storeOwner);
@@ -200,9 +214,9 @@ class FinancialScenarioTest extends TestCase
                     'invoice_id' => $this->invoice2->id,
                     'amount' => 35.00,
                     'type' => 'discount',
-                    'reason' => '客户优惠抹零'
-                ]
-            ]
+                    'reason' => '客户优惠抹零',
+                ],
+            ],
         ];
 
         $discountResponse = $this->postJson("/api/payments/{$payment->id}/apply-discount", $discountData);
@@ -210,7 +224,7 @@ class FinancialScenarioTest extends TestCase
         $discountResponse->assertStatus(200)
             ->assertJson([
                 'success' => true,
-                'message' => '优惠减免处理成功'
+                'message' => '优惠减免处理成功',
             ]);
 
         // 第四步：验证最终状态
@@ -230,7 +244,7 @@ class FinancialScenarioTest extends TestCase
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'amount' => 2300.00,
-            'received_by' => $this->storeOwner->id
+            'received_by' => $this->storeOwner->id,
         ]);
 
         PaymentDiscount::factory()->create([
@@ -238,7 +252,7 @@ class FinancialScenarioTest extends TestCase
             'invoice_id' => $this->invoice2->id,
             'discount_amount' => 35.00,
             'discount_type' => 'discount',
-            'approved_by' => $this->storeOwner->id
+            'approved_by' => $this->storeOwner->id,
         ]);
 
         Sanctum::actingAs($this->storeOwner);
@@ -254,7 +268,7 @@ class FinancialScenarioTest extends TestCase
                     'discount_summary' => [
                         'total_count',
                         'total_amount',
-                        'by_type'
+                        'by_type',
                     ],
                     'store_debt_info' => [
                         'total_invoices',
@@ -264,10 +278,10 @@ class FinancialScenarioTest extends TestCase
                         'discount_amount',
                         'traditional_debt',
                         'actual_debt',
-                        'discount_rate'
+                        'discount_rate',
                     ],
-                    'unpaid_invoices'
-                ]
+                    'unpaid_invoices',
+                ],
             ]);
 
         $data = $response->json('data');
@@ -290,7 +304,7 @@ class FinancialScenarioTest extends TestCase
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'amount' => 2300.00,
-            'received_by' => $this->storeStaff->id
+            'received_by' => $this->storeStaff->id,
         ]);
 
         // 测试店员权限（应该可以进行小额优惠减免）
@@ -302,9 +316,9 @@ class FinancialScenarioTest extends TestCase
                     'invoice_id' => $this->invoice2->id,
                     'amount' => 35.00,
                     'type' => 'discount',
-                    'reason' => '店员优惠抹零'
-                ]
-            ]
+                    'reason' => '店员优惠抹零',
+                ],
+            ],
         ];
 
         $response = $this->postJson("/api/payments/{$payment->id}/apply-discount", $discountData);
@@ -325,7 +339,7 @@ class FinancialScenarioTest extends TestCase
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'amount' => 2300.00,
-            'received_by' => $this->storeOwner->id
+            'received_by' => $this->storeOwner->id,
         ]);
 
         PaymentDiscount::factory()->create([
@@ -333,7 +347,7 @@ class FinancialScenarioTest extends TestCase
             'invoice_id' => $this->invoice2->id,
             'discount_amount' => 35.00,
             'discount_type' => 'discount',
-            'approved_by' => $this->storeOwner->id
+            'approved_by' => $this->storeOwner->id,
         ]);
 
         // 创建另一个客户和优惠减免
@@ -341,14 +355,14 @@ class FinancialScenarioTest extends TestCase
         $invoice3 = Invoice::factory()->create([
             'store_id' => $this->store->id,
             'customer_id' => $customer2->id,
-            'amount' => 1200.00
+            'amount' => 1200.00,
         ]);
 
         $payment2 = Payment::factory()->create([
             'store_id' => $this->store->id,
             'customer_id' => $customer2->id,
             'amount' => 1180.00,
-            'received_by' => $this->storeOwner->id
+            'received_by' => $this->storeOwner->id,
         ]);
 
         PaymentDiscount::factory()->create([
@@ -356,7 +370,7 @@ class FinancialScenarioTest extends TestCase
             'invoice_id' => $invoice3->id,
             'discount_amount' => 20.00,
             'discount_type' => 'promotion',
-            'approved_by' => $this->storeOwner->id
+            'approved_by' => $this->storeOwner->id,
         ]);
 
         Sanctum::actingAs($this->storeOwner);
@@ -369,8 +383,8 @@ class FinancialScenarioTest extends TestCase
                 'data' => [
                     'total_count' => 2,
                     'total_amount' => 55.00,
-                    'average_amount' => 27.50
-                ]
+                    'average_amount' => 27.50,
+                ],
             ]);
 
         $data = $response->json('data');

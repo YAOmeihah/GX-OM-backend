@@ -2,13 +2,11 @@
 
 namespace App\Services;
 
-use App\Models\Payment;
 use App\Models\Invoice;
+use App\Models\Payment;
 use App\Models\PaymentDiscount;
-use App\Models\Customer;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Collection;
-use App\Services\AuditLogService;
+use Illuminate\Support\Facades\DB;
 
 class PaymentDiscountService
 {
@@ -65,7 +63,7 @@ class PaymentDiscountService
             $results = [];
             $gapInfo = $this->detectPaymentGap($payment);
 
-            if (!$gapInfo['has_gap']) {
+            if (! $gapInfo['has_gap']) {
                 throw new \Exception('没有检测到需要处理的差额');
             }
 
@@ -88,7 +86,7 @@ class PaymentDiscountService
                 'allocations' => $allocationResults,
                 'discounts' => $discountResults,
                 'gap_info' => $gapInfo,
-                'message' => '优惠抹零处理完成'
+                'message' => '优惠抹零处理完成',
             ];
 
         } catch (\Exception $e) {
@@ -130,7 +128,7 @@ class PaymentDiscountService
                 $allocations[] = [
                     'allocation' => $allocation,
                     'invoice' => $invoice,
-                    'amount' => $allocateAmount
+                    'amount' => $allocateAmount,
                 ];
 
                 $remainingAmount = \App\Helpers\MoneyHelper::toFloat(
@@ -163,7 +161,7 @@ class PaymentDiscountService
             $discounts[] = [
                 'discount' => $discount,
                 'invoice' => $invoice,
-                'amount' => $data['amount']
+                'amount' => $data['amount'],
             ];
         }
 
@@ -194,7 +192,7 @@ class PaymentDiscountService
         }
 
         foreach ($discountData as $data) {
-            if (!isset($data['invoice_id']) || !isset($data['amount'])) {
+            if (! isset($data['invoice_id']) || ! isset($data['amount'])) {
                 throw new \Exception('折扣数据格式不正确');
             }
 
@@ -204,11 +202,11 @@ class PaymentDiscountService
 
             // 验证账单是否存在且属于正确的客户和门店
             $invoice = Invoice::find($data['invoice_id']);
-            if (!$invoice) {
+            if (! $invoice) {
                 throw new \Exception("账单 {$data['invoice_id']} 不存在");
             }
 
-            if (!$gapInfo['unpaid_invoices']->contains('id', $invoice->id)) {
+            if (! $gapInfo['unpaid_invoices']->contains('id', $invoice->id)) {
                 throw new \Exception("账单 {$invoice->invoice_number} 不在待处理列表中");
             }
         }
@@ -231,7 +229,7 @@ class PaymentDiscountService
     /**
      * 获取优惠减免统计
      */
-    public function getDiscountStatistics(?int $storeId = null, array $dateRange = null): array
+    public function getDiscountStatistics(?int $storeId = null, ?array $dateRange = null): array
     {
         $query = PaymentDiscount::query()
             ->join('payments', 'payment_discounts.payment_id', '=', 'payments.id');
@@ -262,11 +260,11 @@ class PaymentDiscountService
     /**
      * 检查用户是否有权限进行优惠减免
      */
-    public function canApproveDiscount(int $userId, int $storeId, string $discountType = null, float $amount = null): bool
+    public function canApproveDiscount(int $userId, int $storeId, ?string $discountType = null, ?float $amount = null): bool
     {
         $user = \App\Models\User::find($userId);
 
-        if (!$user) {
+        if (! $user) {
             return false;
         }
 
@@ -276,14 +274,14 @@ class PaymentDiscountService
         }
 
         // 检查用户是否属于该门店
-        if (!$user->stores()->where('store_id', $storeId)->exists()) {
+        if (! $user->stores()->where('store_id', $storeId)->exists()) {
             return false;
         }
 
         // 如果指定了折扣类型，检查特定类型的权限
         if ($discountType) {
             $discountConfig = config("payment.discount_types.{$discountType}");
-            if (!$discountConfig) {
+            if (! $discountConfig) {
                 return false;
             }
 
@@ -297,7 +295,7 @@ class PaymentDiscountService
                 }
             }
 
-            if (!$hasRole) {
+            if (! $hasRole) {
                 return false;
             }
 
@@ -314,6 +312,7 @@ class PaymentDiscountService
             // 店员在配置允许的情况下可以进行小额优惠减免
             if ($user->hasRole('store_staff')) {
                 $staffCanDiscount = config('payment.discount_types.discount.approval_roles', []);
+
                 return in_array('store_staff', $staffCanDiscount);
             }
         }
@@ -329,7 +328,7 @@ class PaymentDiscountService
         $user = \App\Models\User::find($userId);
         $errors = [];
 
-        if (!$user) {
+        if (! $user) {
             return ['用户不存在'];
         }
 
@@ -338,8 +337,9 @@ class PaymentDiscountService
             $amount = $data['amount'] ?? 0;
 
             // 检查类型权限
-            if (!$this->canApproveDiscount($userId, $storeId, $discountType, $amount)) {
-                $errors[] = "第" . ($index + 1) . "项：您没有权限进行{$discountType}类型的优惠减免";
+            if (! $this->canApproveDiscount($userId, $storeId, $discountType, $amount)) {
+                $errors[] = '第'.($index + 1)."项：您没有权限进行{$discountType}类型的优惠减免";
+
                 continue;
             }
 
@@ -347,8 +347,8 @@ class PaymentDiscountService
             if (\App\Http\Middleware\CheckDiscountPermission::requiresApproval($discountType, $amount)) {
                 // 这里可以添加审批流程的逻辑
                 // 目前简化处理，只有管理员和店长可以进行需要审批的操作
-                if (!$user->hasRole(['admin', 'store_owner'])) {
-                    $errors[] = "第" . ($index + 1) . "项：该优惠减免需要管理员或店长审批";
+                if (! $user->hasRole(['admin', 'store_owner'])) {
+                    $errors[] = '第'.($index + 1).'项：该优惠减免需要管理员或店长审批';
                 }
             }
         }
@@ -361,7 +361,7 @@ class PaymentDiscountService
      */
     public function logDiscountOperation(Payment $payment, array $discountData, int $userId, string $action = 'create'): void
     {
-        if (!config('payment.audit.log_all_discounts', true)) {
+        if (! config('payment.audit.log_all_discounts', true)) {
             return;
         }
 
@@ -370,10 +370,10 @@ class PaymentDiscountService
         app(AuditLogService::class)->logCustom(
             \App\Models\AuditLog::ACTION_DISCOUNT,
             $payment,
-            "优惠减免操作({$action})：还款 {$payment->payment_number}，共 {$totalAmount} 元，涉及 " . count($discountData) . " 笔",
+            "优惠减免操作({$action})：还款 {$payment->payment_number}，共 {$totalAmount} 元，涉及 ".count($discountData).' 笔',
             [
                 'discount_action' => $action,
-                'discount_count'  => count($discountData),
+                'discount_count' => count($discountData),
                 'total_discount_amount' => $totalAmount,
                 'discount_details' => $discountData,
             ]

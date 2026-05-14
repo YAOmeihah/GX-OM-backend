@@ -1,18 +1,17 @@
 <?php
 
-use App\Http\Controllers\AuthController;
-use App\Http\Controllers\CustomerController;
-use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\AttachmentController;
 use App\Http\Controllers\AuditLogController;
+use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ConfigController;
+use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\InvoiceItemController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PublicInvoiceController;
 use App\Http\Controllers\StoreController;
 use App\Http\Controllers\UserController;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -41,7 +40,6 @@ Route::prefix('public')->group(function () {
 Route::middleware('auth:sanctum')->group(function () {
     // 分享链接生成（需要登录）
     Route::post('invoices/share-link', [PublicInvoiceController::class, 'createShareLink']);
-
 
     // 仪表盘相关路由
     Route::get('dashboard/overview', [DashboardController::class, 'overview']);
@@ -132,7 +130,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/check-token', function () {
             return response()->json(['valid' => true]);
         });
-
 
         // 以下接口仅管理员可访问
         Route::middleware('role:admin')->group(function () {

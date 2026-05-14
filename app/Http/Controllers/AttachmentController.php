@@ -7,10 +7,8 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
-use Aws\S3\S3Client;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * @group 附件管理
@@ -98,17 +96,17 @@ class AttachmentController extends ApiController
             'attachable_type' => 'required|in:invoice,payment',
             'attachable_id' => 'required|integer',
             'filename' => 'required|string|max:255',
-            'file_size' => 'required|integer|min:1|max:' . self::MAX_FILE_SIZE,
-            'mime_type' => 'required|string|in:' . implode(',', self::ALLOWED_MIME_TYPES),
+            'file_size' => 'required|integer|min:1|max:'.self::MAX_FILE_SIZE,
+            'mime_type' => 'required|string|in:'.implode(',', self::ALLOWED_MIME_TYPES),
         ]);
 
         // 验证关联实体是否存在且用户有权限
         $entity = $this->getAttachableEntity($validated['attachable_type'], $validated['attachable_id']);
-        if (!$entity) {
+        if (! $entity) {
             return $this->errorResponse('关联实体不存在', 404);
         }
 
-        if (!$this->canAccessEntity($entity)) {
+        if (! $this->canAccessEntity($entity)) {
             return $this->errorResponse('权限不足', 403);
         }
 
@@ -131,16 +129,14 @@ class AttachmentController extends ApiController
                 'upload_instructions' => [
                     'method' => 'PUT',
                     'content_type' => null, // 关键：设置为null，让浏览器不设置Content-Type头
-                    'note' => '重要：请设置Content-Type为null，让浏览器自动处理'
-                ]
+                    'note' => '重要：请设置Content-Type为null，让浏览器自动处理',
+                ],
             ], '预签名URL生成成功');
 
         } catch (\Exception $e) {
-            return $this->errorResponse('预签名URL生成失败：' . $e->getMessage(), 500);
+            return $this->errorResponse('预签名URL生成失败：'.$e->getMessage(), 500);
         }
     }
-
-
 
     /**
      * 确认文件上传完成
@@ -206,29 +202,30 @@ class AttachmentController extends ApiController
             'attachable_id' => 'required|integer',
             'file_path' => 'required|string',
             'original_filename' => 'required|string|max:255',
-            'file_size' => 'required|integer|min:1|max:' . self::MAX_FILE_SIZE,
-            'mime_type' => 'required|string|in:' . implode(',', self::ALLOWED_MIME_TYPES),
+            'file_size' => 'required|integer|min:1|max:'.self::MAX_FILE_SIZE,
+            'mime_type' => 'required|string|in:'.implode(',', self::ALLOWED_MIME_TYPES),
         ]);
 
         // 验证关联实体是否存在且用户有权限
         $entity = $this->getAttachableEntity($validated['attachable_type'], $validated['attachable_id']);
-        if (!$entity) {
+        if (! $entity) {
             return $this->errorResponse('关联实体不存在', 404);
         }
 
-        if (!$this->canAccessEntity($entity)) {
+        if (! $this->canAccessEntity($entity)) {
             \Log::warning('附件上传确认失败：权限不足', [
                 'attachable_type' => $validated['attachable_type'],
                 'attachable_id' => $validated['attachable_id'],
                 'user_id' => Auth::id(),
                 'entity_store_id' => $entity->store_id ?? null,
             ]);
+
             return $this->errorResponse('权限不足', 403);
         }
 
         // 验证文件是否真的上传到了对象存储
         $fileVerificationResult = $this->verifyFileExistsWithDetails($validated['file_path']);
-        if (!$fileVerificationResult['exists']) {
+        if (! $fileVerificationResult['exists']) {
             \Log::error('附件上传确认失败：文件验证失败', [
                 'file_path' => $validated['file_path'],
                 'user_id' => Auth::id(),
@@ -237,7 +234,7 @@ class AttachmentController extends ApiController
             ]);
 
             return $this->errorResponse(
-                '文件上传验证失败：' . $fileVerificationResult['error_message'],
+                '文件上传验证失败：'.$fileVerificationResult['error_message'],
                 422
             );
         }
@@ -276,7 +273,8 @@ class AttachmentController extends ApiController
                 'trace' => $e->getTraceAsString(),
                 'request_data' => $validated,
             ]);
-            return $this->errorResponse('附件记录保存失败：' . $e->getMessage(), 500);
+
+            return $this->errorResponse('附件记录保存失败：'.$e->getMessage(), 500);
         }
     }
 
@@ -334,11 +332,11 @@ class AttachmentController extends ApiController
 
         // 验证关联实体是否存在且用户有权限
         $entity = $this->getAttachableEntity($validated['attachable_type'], $validated['attachable_id']);
-        if (!$entity) {
+        if (! $entity) {
             return $this->errorResponse('关联实体不存在', 404);
         }
 
-        if (!$this->canAccessEntity($entity)) {
+        if (! $this->canAccessEntity($entity)) {
             return $this->errorResponse('权限不足', 403);
         }
 
@@ -387,7 +385,7 @@ class AttachmentController extends ApiController
         $attachment = Attachment::findOrFail($id);
 
         // 验证用户是否有权限删除该附件
-        if (!$this->canAccessEntity($attachment->attachable)) {
+        if (! $this->canAccessEntity($attachment->attachable)) {
             return $this->errorResponse('权限不足', 403);
         }
 
@@ -401,7 +399,7 @@ class AttachmentController extends ApiController
             return $this->successResponse(null, '附件删除成功');
 
         } catch (\Exception $e) {
-            return $this->errorResponse('附件删除失败：' . $e->getMessage(), 500);
+            return $this->errorResponse('附件删除失败：'.$e->getMessage(), 500);
         }
     }
 
@@ -425,7 +423,7 @@ class AttachmentController extends ApiController
      */
     private function canAccessEntity($entity): bool
     {
-        if (!$entity) {
+        if (! $entity) {
             return false;
         }
 
@@ -467,8 +465,8 @@ class AttachmentController extends ApiController
         $safeFilename = $this->sanitizeFilename($filename);
 
         // 生成唯一的文件名
-        $hash = substr(md5($timestamp . $id . $safeFilename), 0, 8);
-        $storedFilename = $timestamp . '_' . $hash . '_' . $safeFilename;
+        $hash = substr(md5($timestamp.$id.$safeFilename), 0, 8);
+        $storedFilename = $timestamp.'_'.$hash.'_'.$safeFilename;
 
         return "attachments/{$type}s/{$year}/{$month}/{$id}/{$storedFilename}";
     }
@@ -490,7 +488,7 @@ class AttachmentController extends ApiController
         if (strlen($safeFilename) > 100) {
             $extension = pathinfo($safeFilename, PATHINFO_EXTENSION);
             $name = pathinfo($safeFilename, PATHINFO_FILENAME);
-            $safeFilename = substr($name, 0, 95) . '.' . $extension;
+            $safeFilename = substr($name, 0, 95).'.'.$extension;
         }
 
         return $safeFilename ?: 'unnamed_file';
@@ -499,14 +497,14 @@ class AttachmentController extends ApiController
     /**
      * 生成S3兼容存储预签名URL
      */
-    private function generateS3PresignedUrl(string $filePath, string $contentType = null): string
+    private function generateS3PresignedUrl(string $filePath, ?string $contentType = null): string
     {
         $config = config('filesystems.disks.s3-compat');
 
         // 确保endpoint格式正确
         $endpoint = $config['endpoint'];
-        if (!str_starts_with($endpoint, 'http://') && !str_starts_with($endpoint, 'https://')) {
-            $endpoint = 'https://' . $endpoint;
+        if (! str_starts_with($endpoint, 'http://') && ! str_starts_with($endpoint, 'https://')) {
+            $endpoint = 'https://'.$endpoint;
         }
 
         try {
@@ -523,8 +521,8 @@ class AttachmentController extends ApiController
                 'version' => 'latest',
                 'region' => $config['region'],
                 'http' => [
-                    'verify' => false
-                ]
+                    'verify' => false,
+                ],
             ]);
 
             // 创建PutObject命令
@@ -536,7 +534,7 @@ class AttachmentController extends ApiController
             // 生成预签名URL
             $request = $s3Client->createPresignedRequest(
                 $command,
-                '+' . config('app.attachment_presigned_url_expires', 20) . ' minutes'
+                '+'.config('app.attachment_presigned_url_expires', 20).' minutes'
             );
 
             return (string) $request->getUri();
@@ -560,8 +558,8 @@ class AttachmentController extends ApiController
         $baseEndpoint = $endpoint ?: $config['endpoint'];
 
         // 确保endpoint格式正确
-        if (!str_starts_with($baseEndpoint, 'http://') && !str_starts_with($baseEndpoint, 'https://')) {
-            $baseEndpoint = 'https://' . $baseEndpoint;
+        if (! str_starts_with($baseEndpoint, 'http://') && ! str_starts_with($baseEndpoint, 'https://')) {
+            $baseEndpoint = 'https://'.$baseEndpoint;
         }
 
         // 构建签名字符串（v2格式）
@@ -570,24 +568,22 @@ class AttachmentController extends ApiController
             '',                         // Content-MD5 (空)
             '',                         // Content-Type (空，让浏览器自动设置)
             $expires,                   // Expires
-            "/{$bucket}/{$filePath}"    // 资源路径
+            "/{$bucket}/{$filePath}",    // 资源路径
         ]);
 
         // 使用HMAC-SHA1生成签名
         $signature = base64_encode(hash_hmac('sha1', $stringToSign, $config['secret'], true));
 
         // 构建预签名URL
-        $baseUrl = rtrim($baseEndpoint, '/') . '/' . $bucket . '/' . $filePath;
+        $baseUrl = rtrim($baseEndpoint, '/').'/'.$bucket.'/'.$filePath;
         $queryParams = [
             'AWSAccessKeyId' => $config['key'],
             'Expires' => $expires,
             'Signature' => $signature,
         ];
 
-        return $baseUrl . '?' . http_build_query($queryParams);
+        return $baseUrl.'?'.http_build_query($queryParams);
     }
-
-
 
     /**
      * 验证文件是否存在于对象存储（带详细调试信息）
@@ -611,8 +607,8 @@ class AttachmentController extends ApiController
                 'region' => $diskConfig['region'] ?? 'unknown',
                 'bucket' => $diskConfig['bucket'] ?? 'unknown',
                 'endpoint' => $diskConfig['endpoint'] ?? 'unknown',
-                'key_configured' => !empty($diskConfig['key']),
-                'secret_configured' => !empty($diskConfig['secret']),
+                'key_configured' => ! empty($diskConfig['key']),
+                'secret_configured' => ! empty($diskConfig['secret']),
             ];
 
             // 尝试获取存储磁盘实例
@@ -681,6 +677,7 @@ class AttachmentController extends ApiController
     private function verifyFileExists(string $filePath): bool
     {
         $result = $this->verifyFileExistsWithDetails($filePath);
+
         return $result['exists'];
     }
 

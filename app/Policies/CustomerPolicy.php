@@ -8,7 +8,7 @@ use Illuminate\Auth\Access\HandlesAuthorization;
 
 /**
  * 客户授权策略
- * 
+ *
  * 集中管理所有与 Customer 模型相关的权限检查逻辑
  */
 class CustomerPolicy

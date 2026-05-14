@@ -6,10 +6,9 @@ use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\Store;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
-use Carbon\Carbon;
 
 /**
  * @group 仪表盘
@@ -49,7 +48,7 @@ class DashboardController extends ApiController
         $storeIds = $this->getAccessibleStoreIds($filterStoreId);
 
         // 判断是否需要应用门店过滤
-        $shouldFilterByStore = ($filterStoreId !== null) || !$this->isAdmin();
+        $shouldFilterByStore = ($filterStoreId !== null) || ! $this->isAdmin();
 
         // 日期定义
         $today = Carbon::today();
@@ -134,7 +133,9 @@ class DashboardController extends ApiController
         $totalInvoiceAmount = $overallInvoiceStats->total_amount ?? 0;
         $totalPaidAmount = $overallInvoiceStats->total_paid ?? 0;
         $actualOutstanding = $totalInvoiceAmount - $totalPaidAmount - $overallDiscountAmount;
-        if ($actualOutstanding < 0) $actualOutstanding = 0;
+        if ($actualOutstanding < 0) {
+            $actualOutstanding = 0;
+        }
 
         // 收款率
         $collectionRate = $totalInvoiceAmount > 0
@@ -154,7 +155,7 @@ class DashboardController extends ApiController
                 'total_customers' => $totalCustomers,
                 'total_invoices' => $totalInvoices,
                 'total_payments' => $totalPayments,
-                'total_stores' => $userAccessibleStoreCount
+                'total_stores' => $userAccessibleStoreCount,
             ],
             'today' => [
                 'invoice_amount' => number_format($todayInvoiceStats->total_amount ?? 0, 2, '.', ''),
@@ -162,7 +163,7 @@ class DashboardController extends ApiController
                 'payment_amount' => number_format($todayPaymentStats->total_amount ?? 0, 2, '.', ''),
                 'payment_count' => $todayPaymentStats->count ?? 0,
                 'discount_amount' => number_format($todayDiscountAmount, 2, '.', ''),
-                'new_customers' => $todayNewCustomers
+                'new_customers' => $todayNewCustomers,
             ],
             'yesterday' => [
                 'invoice_amount' => number_format($yesterdayInvoiceStats->total_amount ?? 0, 2, '.', ''),
@@ -170,21 +171,21 @@ class DashboardController extends ApiController
                 'payment_amount' => number_format($yesterdayPaymentStats->total_amount ?? 0, 2, '.', ''),
                 'payment_count' => $yesterdayPaymentStats->count ?? 0,
                 'discount_amount' => number_format($yesterdayDiscountAmount, 2, '.', ''),
-                'new_customers' => $yesterdayNewCustomers
+                'new_customers' => $yesterdayNewCustomers,
             ],
             'overall' => [
                 'invoice_amount' => number_format($totalInvoiceAmount, 2, '.', ''),
                 'paid_amount' => number_format($totalPaidAmount, 2, '.', ''),
                 'outstanding_amount' => number_format($actualOutstanding, 2, '.', ''),
                 'discount_amount' => number_format($overallDiscountAmount, 2, '.', ''),
-                'collection_rate' => $collectionRate
+                'collection_rate' => $collectionRate,
             ],
             'invoice_status_distribution' => [
                 'unpaid' => $invoiceStatusStats['unpaid'] ?? 0,
                 'partially_paid' => $invoiceStatusStats['partially_paid'] ?? 0,
                 'paid' => $invoiceStatusStats['paid'] ?? 0,
-                'overdue' => $invoiceStatusStats['overdue'] ?? 0
-            ]
+                'overdue' => $invoiceStatusStats['overdue'] ?? 0,
+            ],
         ]);
     }
 
@@ -255,16 +256,16 @@ class DashboardController extends ApiController
 
         // 客户统计
         $customerStats = [
-            'total_customers' => Customer::when(!$this->isAdmin(), function ($query) use ($storeIds) {
+            'total_customers' => Customer::when(! $this->isAdmin(), function ($query) use ($storeIds) {
                 return $query->whereIn('store_id', $storeIds);
             })->count(),
-            'customers_with_debt' => Customer::whereHas('unpaidInvoices')->when(!$this->isAdmin(), function ($query) use ($storeIds) {
+            'customers_with_debt' => Customer::whereHas('unpaidInvoices')->when(! $this->isAdmin(), function ($query) use ($storeIds) {
                 return $query->whereIn('store_id', $storeIds);
-            })->count()
+            })->count(),
         ];
 
         // 账单统计（按时间筛选）
-        $invoiceQuery = Invoice::when(!$this->isAdmin(), function ($query) use ($storeIds) {
+        $invoiceQuery = Invoice::when(! $this->isAdmin(), function ($query) use ($storeIds) {
             return $query->whereIn('store_id', $storeIds);
         });
 
@@ -283,7 +284,7 @@ class DashboardController extends ApiController
         ')->first();
 
         // 还款统计（按时间筛选）
-        $paymentQuery = Payment::when(!$this->isAdmin(), function ($query) use ($storeIds) {
+        $paymentQuery = Payment::when(! $this->isAdmin(), function ($query) use ($storeIds) {
             return $query->whereIn('store_id', $storeIds);
         });
 
@@ -305,18 +306,20 @@ class DashboardController extends ApiController
         if ($this->isAdmin()) {
             $storeStats = Store::with([
                 'invoices' => function ($query) use ($startDate, $endDate) {
-                    if ($startDate)
+                    if ($startDate) {
                         $query->where('created_at', '>=', $startDate);
-                    if ($endDate)
+                    }
+                    if ($endDate) {
                         $query->where('created_at', '<=', $endDate);
-                }
+                    }
+                },
             ])->get()->map(function ($store) {
                 return [
                     'store_id' => $store->id,
                     'store_name' => $store->name,
                     'invoice_count' => $store->invoices->count(),
                     'total_amount' => $store->invoices->sum('amount'),
-                    'paid_amount' => $store->invoices->sum('paid_amount')
+                    'paid_amount' => $store->invoices->sum('paid_amount'),
                 ];
             });
         }
@@ -324,28 +327,28 @@ class DashboardController extends ApiController
         return $this->successResponse([
             'period' => [
                 'start_date' => $startDate,
-                'end_date' => $endDate
+                'end_date' => $endDate,
             ],
             'customers' => $customerStats,
             'invoices' => [
                 'count' => $invoiceStats->total_count ?? 0,
                 'total_amount' => number_format($invoiceStats->total_amount ?? 0, 2, '.', ''),
                 'paid_amount' => number_format($invoiceStats->total_paid ?? 0, 2, '.', ''),
-                'average_amount' => number_format($invoiceStats->avg_amount ?? 0, 2, '.', '')
+                'average_amount' => number_format($invoiceStats->avg_amount ?? 0, 2, '.', ''),
             ],
             'payments' => [
                 'count' => $paymentStats->total_count ?? 0,
                 'total_amount' => number_format($paymentStats->total_amount ?? 0, 2, '.', ''),
-                'average_amount' => number_format($paymentStats->avg_amount ?? 0, 2, '.', '')
+                'average_amount' => number_format($paymentStats->avg_amount ?? 0, 2, '.', ''),
             ],
-            'stores' => $storeStats
+            'stores' => $storeStats,
         ]);
     }
 
     /**
      * 获取用户可访问的门店ID列表
      *
-     * @param int|null $filterStoreId 可选，指定筛选的门店ID
+     * @param  int|null  $filterStoreId  可选，指定筛选的门店ID
      * @return array 门店ID列表
      */
     private function getAccessibleStoreIds(?int $filterStoreId = null): array
@@ -360,6 +363,7 @@ class DashboardController extends ApiController
             if ($this->belongsToStore($filterStoreId)) {
                 return [$filterStoreId];
             }
+
             // 无权访问该门店，返回空数组
             return [];
         }

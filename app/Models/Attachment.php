@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Storage;
 
 class Attachment extends Model
 {
-    use HasFactory, Auditable;
+    use Auditable, HasFactory;
 
     /**
      * 审计日志排除的字段
@@ -42,13 +42,13 @@ class Attachment extends Model
 
         // 删除附件记录时，同时删除存储的文件
         static::deleting(function (Attachment $attachment) {
-            if (!empty($attachment->file_path)) {
+            if (! empty($attachment->file_path)) {
                 try {
                     Storage::disk('s3-compat')->delete($attachment->file_path);
                 } catch (\Exception $e) {
                     // 记录日志但不阻止删除操作
                     \Log::warning("Failed to delete attachment file: {$attachment->file_path}", [
-                        'error' => $e->getMessage()
+                        'error' => $e->getMessage(),
                     ]);
                 }
             }
@@ -88,7 +88,7 @@ class Attachment extends Model
             $bytes /= 1024;
         }
 
-        return round($bytes, 2) . ' ' . $units[$i];
+        return round($bytes, 2).' '.$units[$i];
     }
 
     /**
@@ -96,7 +96,7 @@ class Attachment extends Model
      */
     public function isImage(): bool
     {
-        return !empty($this->mime_type) && str_starts_with($this->mime_type, 'image/');
+        return ! empty($this->mime_type) && str_starts_with($this->mime_type, 'image/');
     }
 
     /**
@@ -125,7 +125,7 @@ class Attachment extends Model
 
     /**
      * 获取文件访问URL
-     * 
+     *
      * 使用S3兼容存储的URL配置生成完整的文件访问地址
      */
     public function getUrlAttribute(): ?string
@@ -142,12 +142,12 @@ class Attachment extends Model
             $endpoint = config('filesystems.disks.s3-compat.endpoint');
             $bucket = config('filesystems.disks.s3-compat.bucket');
 
-            if (!empty($endpoint) && !empty($bucket)) {
+            if (! empty($endpoint) && ! empty($bucket)) {
                 // 确保 endpoint 格式正确
-                if (!str_starts_with($endpoint, 'http://') && !str_starts_with($endpoint, 'https://')) {
-                    $endpoint = 'https://' . $endpoint;
+                if (! str_starts_with($endpoint, 'http://') && ! str_starts_with($endpoint, 'https://')) {
+                    $endpoint = 'https://'.$endpoint;
                 }
-                $baseUrl = rtrim($endpoint, '/') . '/' . $bucket;
+                $baseUrl = rtrim($endpoint, '/').'/'.$bucket;
             }
         }
 
@@ -155,7 +155,7 @@ class Attachment extends Model
             return null;
         }
 
-        return rtrim($baseUrl, '/') . '/' . ltrim($this->file_path, '/');
+        return rtrim($baseUrl, '/').'/'.ltrim($this->file_path, '/');
     }
 
     /**
@@ -163,13 +163,11 @@ class Attachment extends Model
      *
      * 仅对图片类型附件生成缩略图URL，使用OSS图片处理参数
      * 非图片类型返回null
-     *
-     * @return string|null
      */
     public function getThumbnailUrlAttribute(): ?string
     {
         // 非图片不需要缩略图
-        if (!$this->isImage()) {
+        if (! $this->isImage()) {
             return null;
         }
 
@@ -181,19 +179,17 @@ class Attachment extends Model
 
         // 添加OSS图片处理参数：300x300 裁切模式
         $separator = str_contains($originalUrl, '?') ? '&' : '?';
-        return $originalUrl . $separator . 'w=300&h=300&mode=crop';
+
+        return $originalUrl.$separator.'w=300&h=300&mode=crop';
     }
 
     /**
      * 获取文件名访问器
      *
      * 返回存储的文件名，用于前端显示
-     *
-     * @return string|null
      */
     public function getFilenameAttribute(): ?string
     {
         return $this->stored_filename;
     }
 }
-

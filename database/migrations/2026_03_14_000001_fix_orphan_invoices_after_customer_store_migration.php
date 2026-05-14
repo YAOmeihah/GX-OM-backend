@@ -21,7 +21,7 @@ return new class extends Migration
     {
         // ── 诊断：找出孤儿账单 ────────────────────────────────────────────
         // invoice.store_id 与其 customer.store_id 不一致，说明该客户未被正确克隆
-        $orphanGroups = DB::select("
+        $orphanGroups = DB::select('
             SELECT
                 c.id          AS original_customer_id,
                 c.name        AS customer_name,
@@ -39,7 +39,7 @@ return new class extends Migration
             GROUP BY c.id, c.name, c.phone, c.email, c.address,
                      c.id_card, c.remarks, c.created_at, c.updated_at,
                      i.store_id
-        ");
+        ');
 
         if (empty($orphanGroups)) {
             // 无孤儿数据，跳过
@@ -47,7 +47,7 @@ return new class extends Migration
         }
 
         foreach ($orphanGroups as $group) {
-            $originalId   = $group->original_customer_id;
+            $originalId = $group->original_customer_id;
             $orphanStoreId = (int) $group->orphan_store_id;
 
             // 检查该门店是否已存在同名客户（可能之前部分修复过）
@@ -62,13 +62,13 @@ return new class extends Migration
             } else {
                 // 克隆客户记录到孤儿门店
                 $targetId = DB::table('customers')->insertGetId([
-                    'store_id'   => $orphanStoreId,
-                    'name'       => $group->customer_name,
-                    'phone'      => $group->phone,
-                    'email'      => $group->email,
-                    'address'    => $group->address,
-                    'id_card'    => $group->id_card,
-                    'remarks'    => $group->remarks,
+                    'store_id' => $orphanStoreId,
+                    'name' => $group->customer_name,
+                    'phone' => $group->phone,
+                    'email' => $group->email,
+                    'address' => $group->address,
+                    'id_card' => $group->id_card,
+                    'remarks' => $group->remarks,
                     'created_at' => $group->created_at,
                     'updated_at' => $group->updated_at,
                 ]);
@@ -100,7 +100,7 @@ return new class extends Migration
         }
 
         // ── 同样修复 payments 表中的孤儿记录 ─────────────────────────────
-        $orphanPaymentGroups = DB::select("
+        $orphanPaymentGroups = DB::select('
             SELECT
                 c.id          AS original_customer_id,
                 c.name        AS customer_name,
@@ -118,10 +118,10 @@ return new class extends Migration
             GROUP BY c.id, c.name, c.phone, c.email, c.address,
                      c.id_card, c.remarks, c.created_at, c.updated_at,
                      p.store_id
-        ");
+        ');
 
         foreach ($orphanPaymentGroups as $group) {
-            $originalId    = $group->original_customer_id;
+            $originalId = $group->original_customer_id;
             $orphanStoreId = (int) $group->orphan_store_id;
 
             $existing = DB::table('customers')
@@ -133,13 +133,13 @@ return new class extends Migration
                 $targetId = $existing->id;
             } else {
                 $targetId = DB::table('customers')->insertGetId([
-                    'store_id'   => $orphanStoreId,
-                    'name'       => $group->customer_name,
-                    'phone'      => $group->phone,
-                    'email'      => $group->email,
-                    'address'    => $group->address,
-                    'id_card'    => $group->id_card,
-                    'remarks'    => $group->remarks,
+                    'store_id' => $orphanStoreId,
+                    'name' => $group->customer_name,
+                    'phone' => $group->phone,
+                    'email' => $group->email,
+                    'address' => $group->address,
+                    'id_card' => $group->id_card,
+                    'remarks' => $group->remarks,
                     'created_at' => $group->created_at,
                     'updated_at' => $group->updated_at,
                 ]);

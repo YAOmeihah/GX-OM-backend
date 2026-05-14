@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 
 class Payment extends Model
 {
-    use HasFactory, Auditable;
+    use Auditable, HasFactory;
 
     /**
      * 审计日志排除的字段
@@ -87,15 +87,14 @@ class Payment extends Model
 
     /**
      * 分配还款到指定账单
-     * 
+     *
      * 注意：此方法不再内部管理事务，调用方需要负责事务管理
      * 如果需要原子操作，请使用 allocateToInvoiceWithTransaction()
-     * 
-     * @param Invoice $invoice 目标账单
-     * @param float $amount 分配金额
-     * @param int $allocatedBy 操作用户ID
-     * @param bool $lockForUpdate 是否锁定记录防止并发问题
-     * @return PaymentAllocation
+     *
+     * @param  Invoice  $invoice  目标账单
+     * @param  float  $amount  分配金额
+     * @param  int  $allocatedBy  操作用户ID
+     * @param  bool  $lockForUpdate  是否锁定记录防止并发问题
      */
     public function allocateToInvoice(Invoice $invoice, float $amount, int $allocatedBy, bool $lockForUpdate = true): PaymentAllocation
     {
@@ -125,13 +124,12 @@ class Payment extends Model
 
     /**
      * 分配还款到指定账单（带事务和锁）
-     * 
+     *
      * 此方法提供完整的事务管理和并发控制
-     * 
-     * @param Invoice $invoice 目标账单
-     * @param float $amount 分配金额
-     * @param int $allocatedBy 操作用户ID
-     * @return PaymentAllocation
+     *
+     * @param  Invoice  $invoice  目标账单
+     * @param  float  $amount  分配金额
+     * @param  int  $allocatedBy  操作用户ID
      */
     public function allocateToInvoiceWithTransaction(Invoice $invoice, float $amount, int $allocatedBy): PaymentAllocation
     {
@@ -140,7 +138,7 @@ class Payment extends Model
             $lockedPayment = self::lockForUpdate()->find($this->id);
             $lockedInvoice = Invoice::lockForUpdate()->find($invoice->id);
 
-            if (!$lockedPayment || !$lockedInvoice) {
+            if (! $lockedPayment || ! $lockedInvoice) {
                 throw new \Exception('无法锁定还款或账单记录');
             }
 
@@ -184,10 +182,10 @@ class Payment extends Model
 
     /**
      * 撤销单个分配记录
-     * 
-     * @param PaymentAllocation $allocation 要撤销的分配记录
-     * @param int $revokedBy 操作用户ID
-     * @return bool
+     *
+     * @param  PaymentAllocation  $allocation  要撤销的分配记录
+     * @param  int  $revokedBy  操作用户ID
+     *
      * @throws \Exception
      */
     public function revokeAllocation(PaymentAllocation $allocation, int $revokedBy): bool
@@ -202,7 +200,7 @@ class Payment extends Model
             $lockedPayment = self::lockForUpdate()->find($this->id);
             $lockedInvoice = Invoice::lockForUpdate()->find($allocation->invoice_id);
 
-            if (!$lockedPayment || !$lockedInvoice) {
+            if (! $lockedPayment || ! $lockedInvoice) {
                 throw new \Exception('无法锁定还款或账单记录');
             }
 
@@ -235,7 +233,7 @@ class Payment extends Model
                     'payment_id' => $this->id,
                     'invoice_id' => $lockedInvoice->id,
                     'amount' => $amount,
-                    'revoked_by' => $revokedBy
+                    'revoked_by' => $revokedBy,
                 ]
             );
 
@@ -245,8 +243,8 @@ class Payment extends Model
 
     /**
      * 撤销所有分配记录
-     * 
-     * @param int $revokedBy 操作用户ID
+     *
+     * @param  int  $revokedBy  操作用户ID
      * @return int 撤销的分配数量
      */
     public function revokeAllAllocations(int $revokedBy): int
@@ -317,10 +315,10 @@ class Payment extends Model
             })->toArray(),
         ];
     }
+
     /**
      * Prepare a date for array / JSON serialization.
      *
-     * @param  \DateTimeInterface  $date
      * @return string
      */
     protected function serializeDate(\DateTimeInterface $date)

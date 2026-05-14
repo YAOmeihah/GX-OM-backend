@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 class WechatService
 {
     private string $appId;
+
     private string $appSecret;
 
     public function __construct()
@@ -19,8 +20,6 @@ class WechatService
 
     /**
      * 获取小程序 access_token（带缓存）
-     *
-     * @return string|null
      */
     public function getAccessToken(): ?string
     {
@@ -37,6 +36,7 @@ class WechatService
 
             if (isset($data['errcode']) && $data['errcode'] !== 0) {
                 Log::error('WeChat access_token 获取失败', $data);
+
                 return null;
             }
 
@@ -44,28 +44,27 @@ class WechatService
         });
     }
 
-
-
     /**
      * 检查微信配置是否完整
      */
     public function isConfigured(): bool
     {
-        return !empty($this->appId) && !empty($this->appSecret);
+        return ! empty($this->appId) && ! empty($this->appSecret);
     }
+
     /**
      * 获取不限制的小程序码
      * 文档: https://developers.weixin.qq.com/miniprogram/dev/OpenApiDoc/qrcode-link/unlimited-qrcode/getUnlimitedQRCode.html
      *
-     * @param string $scene 最大32个可见字符
-     * @param string $page 必须是已经发布的小程序存在的页面（否则报错），例如 pages/index/index
-     * @param int $width 二维码的宽度，单位 px，最小 280px，最大 1280px
+     * @param  string  $scene  最大32个可见字符
+     * @param  string  $page  必须是已经发布的小程序存在的页面（否则报错），例如 pages/index/index
+     * @param  int  $width  二维码的宽度，单位 px，最小 280px，最大 1280px
      * @return string|null 图片二进制数据
      */
     public function getUnlimitedQRCode(string $scene, string $page = '', int $width = 430): ?string
     {
         $accessToken = $this->getAccessToken();
-        if (!$accessToken) {
+        if (! $accessToken) {
             return null;
         }
 
@@ -78,7 +77,7 @@ class WechatService
             'env_version' => env('APP_ENV') === 'production' ? 'release' : 'trial', // 根据环境选择版本
         ];
 
-        if (!empty($page)) {
+        if (! empty($page)) {
             $params['page'] = $page;
         }
 
@@ -90,13 +89,15 @@ class WechatService
                 $json = $response->json();
                 if (isset($json['errcode']) && $json['errcode'] !== 0) {
                     Log::error('WeChat getUnlimitedQRCode failed', $json);
+
                     return null;
                 }
             }
 
             return $response->body();
         } catch (\Exception $e) {
-            Log::error('WeChat getUnlimitedQRCode request failed: ' . $e->getMessage());
+            Log::error('WeChat getUnlimitedQRCode request failed: '.$e->getMessage());
+
             return null;
         }
     }

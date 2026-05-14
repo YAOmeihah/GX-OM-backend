@@ -71,7 +71,7 @@ class CustomerController extends ApiController
         $targetStoreIds = $storeId ? [(int) $storeId] : $allowedStoreIds;
 
         // 如果指定了 store_id，验证权限
-        if ($storeId && !in_array($storeId, $allowedStoreIds)) {
+        if ($storeId && ! in_array($storeId, $allowedStoreIds)) {
             $storeId = null;
             // 如果权限验证失败，回退到查看所有有权限的门店
             $targetStoreIds = $allowedStoreIds;
@@ -105,7 +105,7 @@ class CustomerController extends ApiController
             // 把统计表的字段拿出来，并赋予 coalesce 默认值防 null
             $query->addSelect([
                 DB::raw('COALESCE(customer_store_stats.total_debt, 0) as total_debt'),
-                'customer_store_stats.last_transaction_at'
+                'customer_store_stats.last_transaction_at',
             ]);
         } else {
             // 如果是看所有门店汇总情况(管理员视角)
@@ -115,7 +115,7 @@ class CustomerController extends ApiController
                 ->groupBy('customers.id')
                 ->addSelect([
                     DB::raw('COALESCE(SUM(customer_store_stats.total_debt), 0) as total_debt'),
-                    DB::raw('MAX(customer_store_stats.last_transaction_at) as last_transaction_at')
+                    DB::raw('MAX(customer_store_stats.last_transaction_at) as last_transaction_at'),
                 ]);
         }
 
@@ -151,7 +151,7 @@ class CustomerController extends ApiController
 
         \Log::debug('CustomerController.index()', [
             'request_store_id' => $storeId,
-            'filtered_store_ids' => $targetStoreIds
+            'filtered_store_ids' => $targetStoreIds,
         ]);
 
         // 移除旧的 N+1 遍历计算逻辑
@@ -275,14 +275,14 @@ class CustomerController extends ApiController
         }
 
         // 验证用户是否有权限访问该客户所属门店
-        if (!in_array($customer->store_id, $storeIds)) {
+        if (! in_array($customer->store_id, $storeIds)) {
             return $this->errorResponse('您没有权限访问该客户', 403);
         }
 
         // 检查是否指定了特定门店
         $requestedStoreId = request()->input('store_id');
         if ($requestedStoreId) {
-            if (!in_array($requestedStoreId, $storeIds)) {
+            if (! in_array($requestedStoreId, $storeIds)) {
                 return $this->errorResponse('您没有权限访问该门店的数据', 403);
             }
             // 只使用指定的门店
@@ -301,7 +301,7 @@ class CustomerController extends ApiController
             'payments' => function ($query) use ($filterStoreIds) {
                 $query->whereIn('store_id', $filterStoreIds)
                     ->orderBy('created_at', 'desc');
-            }
+            },
         ]);
 
         // 设置门店过滤后的欠款金额
@@ -369,7 +369,7 @@ class CustomerController extends ApiController
 
         // 验证用户是否有权限访问该客户所属门店
         $allowedStoreIds = $this->getUserStoreIds();
-        if (!in_array($customer->store_id, $allowedStoreIds)) {
+        if (! in_array($customer->store_id, $allowedStoreIds)) {
             return $this->errorResponse('您没有权限修改该客户', 403);
         }
 
@@ -516,9 +516,9 @@ class CustomerController extends ApiController
 
         // 验证客户所属门店在用户权限范围内
         $user = request()->user();
-        if ($user && !$user->isAdmin()) {
+        if ($user && ! $user->isAdmin()) {
             $allowedStoreIds = $this->getUserStoreIds();
-            if (!in_array($customer->store_id, $allowedStoreIds)) {
+            if (! in_array($customer->store_id, $allowedStoreIds)) {
                 return $this->errorResponse('无权限访问该客户', 403);
             }
         }
@@ -532,7 +532,7 @@ class CustomerController extends ApiController
 
         // 检查是否指定了特定门店，并验证权限
         $requestedStoreId = request()->input('store_id');
-        if ($requestedStoreId && !in_array($requestedStoreId, $storeIds)) {
+        if ($requestedStoreId && ! in_array($requestedStoreId, $storeIds)) {
             return $this->errorResponse('您没有权限访问该门店的数据', 403);
         }
 
@@ -591,7 +591,7 @@ class CustomerController extends ApiController
                     'created_at' => $invoice->created_at?->format('Y-m-d H:i:s'),
                     'has_discounts' => $invoice->hasDiscounts(),
                 ];
-            })
+            }),
         ]);
     }
 
@@ -710,7 +710,7 @@ class CustomerController extends ApiController
         // 验证门店权限
         $storeIds = $this->getUserStoreIds();
         $storeId = (int) $request->input('store_id');
-        if (!in_array($storeId, $storeIds)) {
+        if (! in_array($storeId, $storeIds)) {
             return $this->errorResponse('您没有权限访问该门店的数据', 403);
         }
 
@@ -751,7 +751,7 @@ class CustomerController extends ApiController
         }
 
         if ($paymentAmount > $totalDebt) {
-            return $this->errorResponse('收款金额超过总欠款 (' . number_format($totalDebt, 2) . ')', 422);
+            return $this->errorResponse('收款金额超过总欠款 ('.number_format($totalDebt, 2).')', 422);
         }
 
         // 开始事务
@@ -760,7 +760,7 @@ class CustomerController extends ApiController
 
             // 生成唯一还款号
             $store = \App\Models\Store::find($storeId);
-            $paymentNumber = 'PAY-' . ($store->code ?? 'STORE') . '-' . date('Ymd') . '-' . \Illuminate\Support\Str::random(5);
+            $paymentNumber = 'PAY-'.($store->code ?? 'STORE').'-'.date('Ymd').'-'.\Illuminate\Support\Str::random(5);
 
             // 创建还款记录
             $payment = \App\Models\Payment::create([
@@ -876,6 +876,7 @@ class CustomerController extends ApiController
      * 包含账单明细、开单人信息和门店收款二维码，用于生成分享图片。
      *
      * @urlParam id integer required 客户ID Example: 1
+     *
      * @queryParam store_id integer 门店ID，不传则使用用户有权限的门店 Example: 1
      * @queryParam date string 日期(YYYY-MM-DD)，默认今天 Example: 2026-01-26
      *
@@ -896,9 +897,9 @@ class CustomerController extends ApiController
 
         // 验证客户所属门店在用户权限范围内
         $user = $request->user();
-        if ($user && !$user->isAdmin()) {
+        if ($user && ! $user->isAdmin()) {
             $allowedStoreIds = $this->getUserStoreIds();
-            if (!in_array($customer->store_id, $allowedStoreIds)) {
+            if (! in_array($customer->store_id, $allowedStoreIds)) {
                 return $this->errorResponse('无权限访问该客户', 403);
             }
         }
@@ -912,7 +913,7 @@ class CustomerController extends ApiController
         // 确定目标门店
         $requestedStoreId = $request->input('store_id');
         if ($requestedStoreId) {
-            if (!in_array($requestedStoreId, $allowedStoreIds)) {
+            if (! in_array($requestedStoreId, $allowedStoreIds)) {
                 return $this->errorResponse('您没有权限访问该门店的数据', 403);
             }
             $targetStoreId = (int) $requestedStoreId;
@@ -976,7 +977,7 @@ class CustomerController extends ApiController
         // 手机号脱敏处理
         $maskedPhone = $customer->phone;
         if ($maskedPhone && strlen($maskedPhone) >= 7) {
-            $maskedPhone = substr($maskedPhone, 0, 3) . '****' . substr($maskedPhone, -4);
+            $maskedPhone = substr($maskedPhone, 0, 3).'****'.substr($maskedPhone, -4);
         }
 
         return $this->successResponse([
@@ -1004,13 +1005,13 @@ class CustomerController extends ApiController
         ]);
     }
 
-
     /**
      * 获取指定账单列表的汇总
      *
      * 根据传入的账单ID列表，生成账单汇总数据（支持跨日期，不支持跨门店）。
      *
      * @urlParam id integer required 客户ID Example: 1
+     *
      * @bodyParam invoice_ids array required 账单ID列表 Example: [1, 2, 3]
      *
      * @response 200 scenario="获取成功" {
@@ -1026,7 +1027,7 @@ class CustomerController extends ApiController
         $customer = Customer::findOrFail($id);
         $invoiceIds = $request->input('invoice_ids');
 
-        if (empty($invoiceIds) || !is_array($invoiceIds)) {
+        if (empty($invoiceIds) || ! is_array($invoiceIds)) {
             return $this->errorResponse('请提供有效的账单ID列表', 422);
         }
 
@@ -1064,7 +1065,7 @@ class CustomerController extends ApiController
         $dateStr = $minDate->format('Y-m-d');
         if ($minDate->format('Y-m-d') !== $maxDate->format('Y-m-d')) {
             // 如果跨天，返回日期范围
-            $dateStr = $minDate->format('m-d') . '~' . $maxDate->format('m-d');
+            $dateStr = $minDate->format('m-d').'~'.$maxDate->format('m-d');
         }
 
         // 计算汇总
@@ -1101,7 +1102,7 @@ class CustomerController extends ApiController
         // 手机号脱敏
         $maskedPhone = $customer->phone;
         if ($maskedPhone && strlen($maskedPhone) >= 7) {
-            $maskedPhone = substr($maskedPhone, 0, 3) . '****' . substr($maskedPhone, -4);
+            $maskedPhone = substr($maskedPhone, 0, 3).'****'.substr($maskedPhone, -4);
         }
 
         return $this->successResponse([

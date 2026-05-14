@@ -75,4 +75,3 @@ return [
     'per_page_default' => 15,
 
 ];
-

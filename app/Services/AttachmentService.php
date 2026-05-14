@@ -36,8 +36,8 @@ class AttachmentService
     {
         $validator = Validator::make($params, [
             'filename' => 'required|string|max:255',
-            'file_size' => 'required|integer|min:1|max:' . self::MAX_FILE_SIZE,
-            'mime_type' => 'required|string|in:' . implode(',', self::ALLOWED_MIME_TYPES),
+            'file_size' => 'required|integer|min:1|max:'.self::MAX_FILE_SIZE,
+            'mime_type' => 'required|string|in:'.implode(',', self::ALLOWED_MIME_TYPES),
         ]);
 
         if ($validator->fails()) {
@@ -56,14 +56,14 @@ class AttachmentService
         $year = $now->format('Y');
         $month = $now->format('m');
         $timestamp = $now->timestamp;
-        
+
         // 清理文件名，防止路径遍历攻击
         $safeFilename = $this->sanitizeFilename($filename);
-        
+
         // 生成唯一的文件名
-        $hash = substr(md5($timestamp . $id . $safeFilename), 0, 8);
-        $storedFilename = $timestamp . '_' . $hash . '_' . $safeFilename;
-        
+        $hash = substr(md5($timestamp.$id.$safeFilename), 0, 8);
+        $storedFilename = $timestamp.'_'.$hash.'_'.$safeFilename;
+
         return "attachments/{$type}s/{$year}/{$month}/{$id}/{$storedFilename}";
     }
 
@@ -84,7 +84,7 @@ class AttachmentService
         if (strlen($safeFilename) > 100) {
             $extension = pathinfo($safeFilename, PATHINFO_EXTENSION);
             $name = pathinfo($safeFilename, PATHINFO_FILENAME);
-            $safeFilename = substr($name, 0, 95) . '.' . $extension;
+            $safeFilename = substr($name, 0, 95).'.'.$extension;
         }
 
         return $safeFilename ?: 'unnamed_file';
@@ -97,6 +97,7 @@ class AttachmentService
     {
         try {
             $disk = Storage::disk(config('app.attachment_disk', 's3-compat'));
+
             return $disk->exists($filePath);
         } catch (\Exception $e) {
             return false;
@@ -110,11 +111,11 @@ class AttachmentService
     {
         try {
             $disk = Storage::disk(config('app.attachment_disk', 's3-compat'));
-            
+
             if ($disk->exists($filePath)) {
                 return $disk->delete($filePath);
             }
-            
+
             return true; // 文件不存在也算删除成功
         } catch (\Exception $e) {
             return false;
@@ -127,11 +128,11 @@ class AttachmentService
     public function getFileDownloadUrl(Attachment $attachment, int $expiresInMinutes = 60): string
     {
         $disk = Storage::disk(config('app.attachment_disk', 's3-compat'));
-        
+
         try {
             return $disk->temporaryUrl($attachment->file_path, now()->addMinutes($expiresInMinutes));
         } catch (\Exception $e) {
-            throw new \RuntimeException('无法生成文件下载链接：' . $e->getMessage());
+            throw new \RuntimeException('无法生成文件下载链接：'.$e->getMessage());
         }
     }
 
@@ -165,11 +166,11 @@ class AttachmentService
     public function formatFileSize(int $bytes): string
     {
         $units = ['B', 'KB', 'MB', 'GB'];
-        
+
         for ($i = 0; $bytes > 1024 && $i < count($units) - 1; $i++) {
             $bytes /= 1024;
         }
-        
-        return round($bytes, 2) . ' ' . $units[$i];
+
+        return round($bytes, 2).' '.$units[$i];
     }
 }

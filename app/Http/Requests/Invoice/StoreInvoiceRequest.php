@@ -6,7 +6,7 @@ use Illuminate\Foundation\Http\FormRequest;
 
 /**
  * 创建账单请求验证
- * 
+ *
  * 将 InvoiceController::store() 中的验证逻辑抽离到此处
  */
 class StoreInvoiceRequest extends FormRequest
@@ -17,6 +17,7 @@ class StoreInvoiceRequest extends FormRequest
     public function authorize(): bool
     {
         $user = $this->user();
+
         return $user && ($user->isAdmin() || $user->isStoreOwner() || $user->isStoreStaff());
     }
 
@@ -47,7 +48,7 @@ class StoreInvoiceRequest extends FormRequest
     {
         $validator->after(function ($validator) {
             $storeId = $this->input('store_id');
-            if ($storeId && !$this->user()->isAdmin() && !$this->user()->belongsToStore($storeId)) {
+            if ($storeId && ! $this->user()->isAdmin() && ! $this->user()->belongsToStore($storeId)) {
                 $validator->errors()->add('store_id', '你没有权限在此门店创建账单');
             }
 
@@ -61,7 +62,7 @@ class StoreInvoiceRequest extends FormRequest
             }
 
             // 验证：必须提供 amount 或 items 其中之一
-            if (!$this->filled('amount') && !$this->filled('items')) {
+            if (! $this->filled('amount') && ! $this->filled('items')) {
                 $validator->errors()->add('amount', '必须提供账单金额或明细项目');
             }
         });

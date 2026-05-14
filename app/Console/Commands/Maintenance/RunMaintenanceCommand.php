@@ -63,23 +63,24 @@ class RunMaintenanceCommand extends Command
         $profile = $this->option('profile');
         $isDryRun = $this->option('dry-run');
 
-        if (!isset($this->profiles[$profile])) {
+        if (! isset($this->profiles[$profile])) {
             $this->error("未知的配置文件: {$profile}");
-            $this->info("可用的配置: " . implode(', ', array_keys($this->profiles)));
+            $this->info('可用的配置: '.implode(', ', array_keys($this->profiles)));
+
             return Command::FAILURE;
         }
 
         $config = $this->profiles[$profile];
 
-        $this->info("========================================");
-        $this->info("     GX-OM 综合维护任务调度器");
-        $this->info("========================================");
+        $this->info('========================================');
+        $this->info('     GX-OM 综合维护任务调度器');
+        $this->info('========================================');
         $this->newLine();
         $this->info("配置文件: {$profile}");
         $this->info("描述: {$config['description']}");
-        $this->info("开始时间: " . Carbon::now()->toDateTimeString());
+        $this->info('开始时间: '.Carbon::now()->toDateTimeString());
         if ($isDryRun) {
-            $this->warn("[模拟运行模式]");
+            $this->warn('[模拟运行模式]');
         }
         $this->newLine();
 
@@ -95,9 +96,9 @@ class RunMaintenanceCommand extends Command
                 $options['--dry-run'] = true;
             }
 
-            $this->info("----------------------------------------");
-            $this->info("[" . ($index + 1) . "/{$totalCommands}] 执行: {$commandName}");
-            $this->info("----------------------------------------");
+            $this->info('----------------------------------------');
+            $this->info('['.($index + 1)."/{$totalCommands}] 执行: {$commandName}");
+            $this->info('----------------------------------------');
 
             try {
                 $exitCode = $this->call($commandName, $options);
@@ -118,18 +119,20 @@ class RunMaintenanceCommand extends Command
         }
 
         // 汇总报告
-        $this->info("========================================");
-        $this->info("          维护任务执行报告");
-        $this->info("========================================");
-        $this->info("完成时间: " . Carbon::now()->toDateTimeString());
+        $this->info('========================================');
+        $this->info('          维护任务执行报告');
+        $this->info('========================================');
+        $this->info('完成时间: '.Carbon::now()->toDateTimeString());
         $this->info("成功任务: {$completedCommands}/{$totalCommands}");
 
-        if (!empty($failedCommands)) {
-            $this->error("失败任务: " . implode(', ', $failedCommands));
+        if (! empty($failedCommands)) {
+            $this->error('失败任务: '.implode(', ', $failedCommands));
+
             return Command::FAILURE;
         }
 
-        $this->info("所有任务执行成功!");
+        $this->info('所有任务执行成功!');
+
         return Command::SUCCESS;
     }
 }

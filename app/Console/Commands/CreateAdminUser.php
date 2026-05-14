@@ -40,11 +40,11 @@ class CreateAdminUser extends Command
 
             // 检查是否已存在管理员角色
             $adminRole = Role::where('slug', 'admin')->first();
-            if (!$adminRole) {
+            if (! $adminRole) {
                 $adminRole = Role::create([
                     'name' => '系统管理员',
                     'slug' => 'admin',
-                    'description' => '系统管理员，拥有所有权限'
+                    'description' => '系统管理员，拥有所有权限',
                 ]);
                 $this->info('✓ 创建管理员角色成功');
             } else {
@@ -56,7 +56,7 @@ class CreateAdminUser extends Command
             if ($adminUser) {
                 $this->warn('! 管理员用户已存在，正在更新密码...');
                 $adminUser->update([
-                    'password' => Hash::make($password)
+                    'password' => Hash::make($password),
                 ]);
             } else {
                 // 创建管理员用户
@@ -70,7 +70,7 @@ class CreateAdminUser extends Command
             }
 
             // 为用户分配管理员角色
-            if (!$adminUser->hasRole('admin')) {
+            if (! $adminUser->hasRole('admin')) {
                 $adminUser->roles()->attach($adminRole->id);
                 $this->info('✓ 分配管理员角色成功');
             } else {
@@ -79,17 +79,17 @@ class CreateAdminUser extends Command
 
             // 创建其他必要的角色
             Role::firstOrCreate([
-                'slug' => 'store_owner'
+                'slug' => 'store_owner',
             ], [
                 'name' => '店长',
-                'description' => '门店管理员'
+                'description' => '门店管理员',
             ]);
 
             Role::firstOrCreate([
-                'slug' => 'store_staff'
+                'slug' => 'store_staff',
             ], [
                 'name' => '店员',
-                'description' => '门店员工'
+                'description' => '门店员工',
             ]);
 
             $this->info('✓ 创建其他角色成功');
@@ -109,8 +109,9 @@ class CreateAdminUser extends Command
 
         } catch (\Exception $e) {
             DB::rollback();
-            $this->error('✗ 创建失败: ' . $e->getMessage());
-            $this->error('文件: ' . $e->getFile() . ':' . $e->getLine());
+            $this->error('✗ 创建失败: '.$e->getMessage());
+            $this->error('文件: '.$e->getFile().':'.$e->getLine());
+
             return 1;
         }
     }

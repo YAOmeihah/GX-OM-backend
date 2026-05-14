@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use App\Models\User;
 use App\Models\Role;
 use App\Models\Store;
+use App\Models\User;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -80,11 +80,10 @@ class UserController extends ApiController
      *   "login_url": "http://localhost/api/login"
      * }
      */
-
     public function index(Request $request)
     {
         // 检查权限
-        if (!$request->user()->isAdmin()) {
+        if (! $request->user()->isAdmin()) {
             return $this->errorResponse('权限不足', 403);
         }
 
@@ -173,7 +172,7 @@ class UserController extends ApiController
     public function store(Request $request)
     {
         // 验证管理员权限
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             return $this->errorResponse('仅管理员可创建用户', 403);
         }
 
@@ -190,7 +189,7 @@ class UserController extends ApiController
         ]);
 
         // 如果未提供邮箱，自动生成一个
-        $email = $validated['email'] ?? ($validated['username'] . '@system.local');
+        $email = $validated['email'] ?? ($validated['username'].'@system.local');
 
         // 创建用户
         $user = User::create([
@@ -202,7 +201,7 @@ class UserController extends ApiController
 
         // 分配角色和门店
         $user->roles()->sync($validated['role_ids']);
-        if (!empty($validated['store_ids'])) {
+        if (! empty($validated['store_ids'])) {
             $user->stores()->sync($validated['store_ids']);
         }
 
@@ -266,7 +265,7 @@ class UserController extends ApiController
     public function show(Request $request, User $user)
     {
         // 检查权限
-        if (!$request->user()->isAdmin()) {
+        if (! $request->user()->isAdmin()) {
             return $this->errorResponse('权限不足', 403);
         }
 
@@ -316,14 +315,14 @@ class UserController extends ApiController
     public function update(Request $request, User $user)
     {
         // 检查权限
-        if (!$request->user()->isAdmin()) {
+        if (! $request->user()->isAdmin()) {
             return $this->errorResponse('权限不足', 403);
         }
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'username' => 'required|string|max:255|unique:users,username,' . $user->id,
-            'email' => 'nullable|email|max:255|unique:users,email,' . $user->id,
+            'username' => 'required|string|max:255|unique:users,username,'.$user->id,
+            'email' => 'nullable|email|max:255|unique:users,email,'.$user->id,
             'password' => 'nullable|string|min:6|confirmed',
             'role_ids' => 'sometimes|array',
             'role_ids.*' => 'exists:roles,id',
@@ -334,7 +333,7 @@ class UserController extends ApiController
         // 防止删除自己的管理员角色（在写入之前检查）
         if (isset($validated['role_ids']) && $user->id === $request->user()->id) {
             $adminRole = Role::where('slug', 'admin')->first();
-            if ($adminRole && !in_array($adminRole->id, $validated['role_ids'])) {
+            if ($adminRole && ! in_array($adminRole->id, $validated['role_ids'])) {
                 return $this->errorResponse('不能删除自己的管理员角色', 400);
             }
         }
@@ -344,10 +343,10 @@ class UserController extends ApiController
             $user->name = $validated['name'];
             $user->username = $validated['username'];
             // 如果未提供邮箱，自动生成一个 (保持与store方法一致的逻辑)
-            $user->email = !empty($validated['email']) ? $validated['email'] : ($validated['username'] . '@system.local');
+            $user->email = ! empty($validated['email']) ? $validated['email'] : ($validated['username'].'@system.local');
 
             // 如果提供了密码，则更新
-            if (!empty($validated['password'])) {
+            if (! empty($validated['password'])) {
                 $user->password = \Illuminate\Support\Facades\Hash::make($validated['password']);
                 // 强制下线：修改密码后清除该用户所有令牌
                 $user->tokens()->delete();
@@ -438,7 +437,7 @@ class UserController extends ApiController
     public function updateRoles(Request $request, User $user)
     {
         // 检查权限
-        if (!$request->user()->isAdmin()) {
+        if (! $request->user()->isAdmin()) {
             return $this->errorResponse('权限不足', 403);
         }
 
@@ -450,7 +449,7 @@ class UserController extends ApiController
         // 防止删除自己的管理员角色
         if ($user->id === $request->user()->id) {
             $adminRole = Role::where('slug', 'admin')->first();
-            if ($adminRole && !in_array($adminRole->id, $request->role_ids)) {
+            if ($adminRole && ! in_array($adminRole->id, $request->role_ids)) {
                 return $this->errorResponse('不能删除自己的管理员角色', 400);
             }
         }
@@ -551,7 +550,7 @@ class UserController extends ApiController
     public function updateStores(Request $request, User $user)
     {
         // 检查权限
-        if (!$request->user()->isAdmin()) {
+        if (! $request->user()->isAdmin()) {
             return $this->errorResponse('权限不足', 403);
         }
 
@@ -632,7 +631,7 @@ class UserController extends ApiController
     public function getRoles(Request $request)
     {
         // 检查权限
-        if (!$request->user()->isAdmin()) {
+        if (! $request->user()->isAdmin()) {
             return $this->errorResponse('权限不足', 403);
         }
 

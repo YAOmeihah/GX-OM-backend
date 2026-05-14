@@ -78,7 +78,6 @@ class PermissionController extends ApiController
      *     ]
      *   }
      * }
-     *
      * @response 403 scenario="权限不足" {
      *   "success": false,
      *   "message": "权限不足"
@@ -87,7 +86,7 @@ class PermissionController extends ApiController
     public function index()
     {
         // 只有管理员能查看
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             return $this->errorResponse('权限不足', 403);
         }
 
@@ -138,25 +137,23 @@ class PermissionController extends ApiController
      *     ]
      *   }
      * }
-     *
      * @response 403 scenario="权限不足" {
      *   "success": false,
      *   "message": "权限不足"
      * }
-     *
      * @response 404 scenario="角色不存在" {
      *   "message": "No query results for model [App\\Models\\Role]."
      * }
      */
     public function getRolePermissions(Role $role)
     {
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             return $this->errorResponse('权限不足', 403);
         }
 
         return $this->successResponse([
             'role' => $role,
-            'permissions' => $role->permissions
+            'permissions' => $role->permissions,
         ]);
     }
 
@@ -214,12 +211,10 @@ class PermissionController extends ApiController
      *   },
      *   "message": "权限更新成功"
      * }
-     *
      * @response 403 scenario="权限不足" {
      *   "success": false,
      *   "message": "权限不足"
      * }
-     *
      * @response 422 scenario="参数验证失败" {
      *   "message": "The given data was invalid.",
      *   "errors": {
@@ -227,20 +222,19 @@ class PermissionController extends ApiController
      *     "permissions.0": ["所选的 permissions.0 无效"]
      *   }
      * }
-     *
      * @response 404 scenario="角色不存在" {
      *   "message": "No query results for model [App\\Models\\Role]."
      * }
      */
     public function updateRolePermissions(Request $request, Role $role)
     {
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             return $this->errorResponse('权限不足', 403);
         }
 
         $validated = $request->validate([
             'permissions' => 'required|array',
-            'permissions.*' => 'exists:permissions,id'
+            'permissions.*' => 'exists:permissions,id',
         ]);
 
         $role->permissions()->sync($validated['permissions']);
@@ -285,7 +279,6 @@ class PermissionController extends ApiController
      *     ]
      *   }
      * }
-     *
      * @response 200 scenario="店长用户" {
      *   "success": true,
      *   "data": {
@@ -313,7 +306,6 @@ class PermissionController extends ApiController
      *     ]
      *   }
      * }
-     *
      * @response 200 scenario="管理员用户" {
      *   "success": true,
      *   "data": {
@@ -355,7 +347,6 @@ class PermissionController extends ApiController
      *     ]
      *   }
      * }
-     *
      * @response 401 scenario="未登录" {
      *   "success": false,
      *   "message": "未认证用户",
@@ -407,7 +398,6 @@ class PermissionController extends ApiController
      *     "settings"
      *   ]
      * }
-     *
      * @response 403 scenario="权限不足" {
      *   "success": false,
      *   "message": "权限不足"
@@ -415,7 +405,7 @@ class PermissionController extends ApiController
      */
     public function getModules()
     {
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             return $this->errorResponse('权限不足', 403);
         }
 

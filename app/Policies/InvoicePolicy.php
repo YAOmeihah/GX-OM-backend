@@ -8,7 +8,7 @@ use Illuminate\Auth\Access\HandlesAuthorization;
 
 /**
  * 账单授权策略
- * 
+ *
  * 集中管理所有与 Invoice 模型相关的权限检查逻辑
  */
 class InvoicePolicy
@@ -36,8 +36,8 @@ class InvoicePolicy
     /**
      * 创建账单
      * 管理员或属于目标门店的用户可以创建
-     * 
-     * @param int|null $storeId 目标门店ID（从请求中获取）
+     *
+     * @param  int|null  $storeId  目标门店ID（从请求中获取）
      */
     public function create(User $user, ?int $storeId = null): bool
     {

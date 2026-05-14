@@ -1,8 +1,9 @@
 <?php
+
 // 创建完整测试数据：门店、客户、多个账单（含明细和附件）
 
-require __DIR__ . '/vendor/autoload.php';
-$app = require_once __DIR__ . '/bootstrap/app.php';
+require __DIR__.'/vendor/autoload.php';
+$app = require_once __DIR__.'/bootstrap/app.php';
 $app->make('Illuminate\Contracts\Console\Kernel')->bootstrap();
 
 use Illuminate\Support\Facades\DB;
@@ -13,8 +14,8 @@ DB::beginTransaction();
 try {
     // 1. 获取现有门店
     $store = \App\Models\Store::first();
-    if (!$store) {
-        throw new Exception("没有找到门店，请先创建门店");
+    if (! $store) {
+        throw new Exception('没有找到门店，请先创建门店');
     }
     // 更新门店信息用于展示
     $store->update(['phone' => '13800138000']);
@@ -22,21 +23,21 @@ try {
 
     // 2. 获取现有客户
     $customer = \App\Models\Customer::first();
-    if (!$customer) {
-        throw new Exception("没有找到客户，请先创建客户");
+    if (! $customer) {
+        throw new Exception('没有找到客户，请先创建客户');
     }
     echo "客户: {$customer->name} (ID: {$customer->id})\n";
 
     // 3. 获取用户
     $user = \App\Models\User::first();
-    if (!$user) {
-        throw new Exception("没有找到用户，请先创建用户");
+    if (! $user) {
+        throw new Exception('没有找到用户，请先创建用户');
     }
 
     // 4. 创建多个账单
     $invoiceData = [
         [
-            'invoice_number' => 'GX-' . date('Ymd') . '-001',
+            'invoice_number' => 'GX-'.date('Ymd').'-001',
             'amount' => 1580.00,
             'paid_amount' => 500.00,
             'status' => 'partially_paid',
@@ -46,10 +47,10 @@ try {
                 ['item_name' => '白百合', 'item_description' => '云南昆明产', 'quantity' => 20, 'unit_price' => 15.00],
                 ['item_name' => '满天星', 'item_description' => '配花', 'quantity' => 10, 'unit_price' => 5.00],
                 ['item_name' => '包装费', 'item_description' => '高端礼盒', 'quantity' => 1, 'unit_price' => 138.00],
-            ]
+            ],
         ],
         [
-            'invoice_number' => 'GX-' . date('Ymd') . '-002',
+            'invoice_number' => 'GX-'.date('Ymd').'-002',
             'amount' => 2350.00,
             'paid_amount' => 0,
             'status' => 'unpaid',
@@ -58,10 +59,10 @@ try {
                 ['item_name' => '豪华花篮', 'item_description' => '1.8米三层', 'quantity' => 2, 'unit_price' => 680.00],
                 ['item_name' => '普通花篮', 'item_description' => '1.2米双层', 'quantity' => 3, 'unit_price' => 280.00],
                 ['item_name' => '配送费', 'item_description' => '市区配送', 'quantity' => 1, 'unit_price' => 150.00],
-            ]
+            ],
         ],
         [
-            'invoice_number' => 'GX-' . date('Ymd') . '-003',
+            'invoice_number' => 'GX-'.date('Ymd').'-003',
             'amount' => 860.00,
             'paid_amount' => 860.00,
             'status' => 'paid',
@@ -71,7 +72,7 @@ try {
                 ['item_name' => '向日葵', 'item_description' => '大头', 'quantity' => 30, 'unit_price' => 8.00],
                 ['item_name' => '雏菊', 'item_description' => '白色', 'quantity' => 40, 'unit_price' => 2.50],
                 ['item_name' => '尤加利叶', 'item_description' => '进口', 'quantity' => 20, 'unit_price' => 6.00],
-            ]
+            ],
         ],
     ];
 
@@ -103,12 +104,12 @@ try {
                 'sort_order' => $sortOrder++,
             ]);
         }
-        echo "  - 明细: " . count($items) . " 项\n";
+        echo '  - 明细: '.count($items)." 项\n";
 
         // 创建模拟附件（使用占位图片路径）
         $attachmentPaths = [
-            'invoices/' . $invoice->id . '/receipt_' . uniqid() . '.jpg',
-            'invoices/' . $invoice->id . '/photo_' . uniqid() . '.jpg',
+            'invoices/'.$invoice->id.'/receipt_'.uniqid().'.jpg',
+            'invoices/'.$invoice->id.'/photo_'.uniqid().'.jpg',
         ];
         foreach ($attachmentPaths as $path) {
             \App\Models\Attachment::create([
@@ -144,7 +145,7 @@ try {
     echo "====================================\n";
     echo "门店: {$store->name}\n";
     echo "客户: {$customer->name}\n";
-    echo "账单数量: " . count($invoiceIds) . "\n";
+    echo '账单数量: '.count($invoiceIds)."\n";
     echo "------------------------------------\n";
     echo "多账单测试 Token: {$token->token}\n";
     echo "小程序路径: /pages/bill/index?token={$token->token}\n";
@@ -165,6 +166,6 @@ try {
 
 } catch (Exception $e) {
     DB::rollBack();
-    echo "错误: " . $e->getMessage() . "\n";
+    echo '错误: '.$e->getMessage()."\n";
     exit(1);
 }

@@ -7,7 +7,7 @@ use Illuminate\Foundation\Http\FormRequest;
 
 /**
  * 批量还款分配请求验证
- * 
+ *
  * 支持一次性分配到多个账单
  */
 class BatchAllocatePaymentRequest extends FormRequest
@@ -24,11 +24,12 @@ class BatchAllocatePaymentRequest extends FormRequest
             $payment = Payment::find($payment);
         }
 
-        if (!$payment) {
+        if (! $payment) {
             return false;
         }
 
         $user = $this->user();
+
         return $user->isAdmin() || $user->belongsToStore($payment->store_id);
     }
 

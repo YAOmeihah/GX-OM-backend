@@ -2,27 +2,34 @@
 
 namespace Tests\Feature;
 
-use Tests\TestCase;
-use Tests\Traits\CreatesTestUsers;
-use App\Models\User;
-use App\Models\Store;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceShareToken;
+use App\Models\Store;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
+use Tests\TestCase;
+use Tests\Traits\CreatesTestUsers;
 
 class InvoiceShareApiTest extends TestCase
 {
-    use RefreshDatabase, CreatesTestUsers;
+    use CreatesTestUsers, RefreshDatabase;
 
     protected User $admin;
+
     protected User $storeOwner;
+
     protected Store $store;
+
     protected Store $store2;
+
     protected Customer $customer;
+
     protected Invoice $invoice1;
+
     protected Invoice $invoice2;
+
     protected Invoice $invoice3;
 
     protected function setUp(): void

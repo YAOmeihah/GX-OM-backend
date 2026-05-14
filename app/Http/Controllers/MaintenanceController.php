@@ -2,15 +2,16 @@
 
 namespace App\Http\Controllers;
 
-use App\Services\MaintenanceScanService;
 use App\Services\AuditLogService;
-use Illuminate\Http\Request;
+use App\Services\MaintenanceScanService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class MaintenanceController extends Controller
 {
     protected MaintenanceScanService $scanService;
+
     protected AuditLogService $auditLogService;
 
     public function __construct(MaintenanceScanService $scanService, AuditLogService $auditLogService)
@@ -21,7 +22,7 @@ class MaintenanceController extends Controller
 
     /**
      * 扫描待处理数据
-     * 
+     *
      * @group 数据维护
      */
     public function scan(Request $request): JsonResponse
@@ -60,14 +61,14 @@ class MaintenanceController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => '扫描失败: ' . $e->getMessage(),
+                'message' => '扫描失败: '.$e->getMessage(),
             ], 500);
         }
     }
 
     /**
      * 执行清理操作
-     * 
+     *
      * @group 数据维护
      */
     public function execute(Request $request): JsonResponse
@@ -112,14 +113,14 @@ class MaintenanceController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => '执行失败: ' . $e->getMessage(),
+                'message' => '执行失败: '.$e->getMessage(),
             ], 500);
         }
     }
 
     /**
      * 获取维护执行历史
-     * 
+     *
      * @group 数据维护
      */
     public function history(Request $request): JsonResponse
@@ -148,7 +149,7 @@ class MaintenanceController extends Controller
 
     /**
      * 导出扫描结果
-     * 
+     *
      * @group 数据维护
      */
     public function export(Request $request): JsonResponse
@@ -159,7 +160,7 @@ class MaintenanceController extends Controller
 
         $scanData = cache()->get("maintenance_scan:{$validated['scan_id']}");
 
-        if (!$scanData) {
+        if (! $scanData) {
             return response()->json([
                 'success' => false,
                 'message' => '扫描结果已过期，请重新扫描',
@@ -167,7 +168,7 @@ class MaintenanceController extends Controller
         }
 
         $exportDir = storage_path('app/maintenance_exports');
-        if (!is_dir($exportDir)) {
+        if (! is_dir($exportDir)) {
             mkdir($exportDir, 0755, true);
         }
 
@@ -189,14 +190,14 @@ class MaintenanceController extends Controller
 
     /**
      * 下载导出文件
-     * 
+     *
      * @group 数据维护
      */
     public function downloadExport(string $filename)
     {
         $filepath = storage_path("app/maintenance_exports/{$filename}");
 
-        if (!file_exists($filepath)) {
+        if (! file_exists($filepath)) {
             abort(404, '文件不存在');
         }
 
@@ -207,7 +208,7 @@ class MaintenanceController extends Controller
 
     /**
      * 获取可用的维护类型
-     * 
+     *
      * @group 数据维护
      */
     public function types(): JsonResponse

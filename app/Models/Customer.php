@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 
 class Customer extends Model
 {
-    use HasFactory, Auditable;
+    use Auditable, HasFactory;
 
     /**
      * 审计日志排除的字段
@@ -85,6 +85,7 @@ class Customer extends Model
         if ($value !== null) {
             return (float) $value;
         }
+
         return $this->unpaidInvoices()->sum(DB::raw('amount - paid_amount'));
     }
 
@@ -227,9 +228,6 @@ class Customer extends Model
 
     /**
      * Prepare a date for array / JSON serialization.
-     *
-     * @param  \DateTimeInterface  $date
-     * @return string
      */
     protected function serializeDate(\DateTimeInterface $date): string
     {

@@ -49,10 +49,10 @@ enum PaymentAllocationStrategy: string
         return match ($this) {
             self::OVERDUE_FIRST => [
                 ['due_date', '<', now()->toDateString()],
-                ['status', 'in', ['unpaid', 'partially_paid', 'overdue']]
+                ['status', 'in', ['unpaid', 'partially_paid', 'overdue']],
             ],
             default => [
-                ['status', 'in', ['unpaid', 'partially_paid', 'overdue']]
+                ['status', 'in', ['unpaid', 'partially_paid', 'overdue']],
             ],
         };
     }

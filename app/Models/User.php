@@ -14,7 +14,7 @@ use Laravel\Sanctum\HasApiTokens;
 class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable, HasApiTokens, Auditable;
+    use Auditable, HasApiTokens, HasFactory, Notifiable;
 
     /**
      * 审计日志排除的字段
@@ -71,8 +71,6 @@ class User extends Authenticatable
     {
         return $this->belongsToMany(Store::class)->withTimestamps();
     }
-
-
 
     /**
      * 获取用户创建的账单
@@ -190,7 +188,7 @@ class User extends Authenticatable
         }
 
         foreach ($permissions as $permission) {
-            if (!$this->hasPermission($permission)) {
+            if (! $this->hasPermission($permission)) {
                 return false;
             }
         }

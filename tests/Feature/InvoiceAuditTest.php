@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Role;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -21,7 +22,9 @@ class InvoiceAuditTest extends TestCase
     use RefreshDatabase;
 
     protected User $admin;
+
     protected Store $store;
+
     protected Customer $customer;
 
     protected function setUp(): void
@@ -29,7 +32,9 @@ class InvoiceAuditTest extends TestCase
         parent::setUp();
 
         // 创建测试数据
-        $this->admin = User::factory()->create(['role' => 'admin']);
+        $this->admin = User::factory()->create();
+        $adminRole = Role::firstOrCreate(['slug' => 'admin'], ['name' => '系统管理员']);
+        $this->admin->roles()->attach($adminRole);
         $this->store = Store::factory()->create();
         $this->customer = Customer::factory()->create(['store_id' => $this->store->id]);
     }
@@ -40,7 +45,7 @@ class InvoiceAuditTest extends TestCase
     public function test_adding_items_creates_audit_log_with_added_changes()
     {
         // 创建初始账单（只有一条明细）
-        $invoice = Invoice::factory()->create([
+        $invoice = Invoice::factory()->unpaid()->create([
             'customer_id' => $this->customer->id,
             'store_id' => $this->store->id,
         ]);
@@ -73,16 +78,16 @@ class InvoiceAuditTest extends TestCase
         // 验证审计日志
         $log = AuditLog::where('auditable_id', $invoice->id)
             ->where('auditable_type', Invoice::class)
-            ->where('action', 'updated')
-            ->latest()
+            ->where('action', AuditLog::ACTION_UPDATE)
+            ->orderByDesc('id')
             ->first();
 
         $this->assertNotNull($log);
         $this->assertNotNull($log->change_payload);
         $this->assertEquals('invoice', $log->change_payload['domain']);
-        $this->assertEquals(1, $log->change_payload['stats']['added_count']);
+        $this->assertEquals(1, $log->change_payload['stats']['item_added_count']);
         $this->assertCount(1, $log->change_payload['item_changes']['added']);
-        $this->assertEquals('新增项目', $log->change_payload['item_changes']['added'][0]['item_name']);
+        $this->assertEquals('新增项目', $log->change_payload['item_changes']['added'][0]['display_name']);
     }
 
     /**
@@ -91,7 +96,7 @@ class InvoiceAuditTest extends TestCase
     public function test_removing_items_creates_audit_log_with_removed_changes()
     {
         // 创建初始账单（两条明细）
-        $invoice = Invoice::factory()->create([
+        $invoice = Invoice::factory()->unpaid()->create([
             'customer_id' => $this->customer->id,
             'store_id' => $this->store->id,
         ]);
@@ -125,15 +130,15 @@ class InvoiceAuditTest extends TestCase
         // 验证审计日志
         $log = AuditLog::where('auditable_id', $invoice->id)
             ->where('auditable_type', Invoice::class)
-            ->where('action', 'updated')
-            ->latest()
+            ->where('action', AuditLog::ACTION_UPDATE)
+            ->orderByDesc('id')
             ->first();
 
         $this->assertNotNull($log);
         $this->assertNotNull($log->change_payload);
-        $this->assertEquals(1, $log->change_payload['stats']['removed_count']);
+        $this->assertEquals(1, $log->change_payload['stats']['item_removed_count']);
         $this->assertCount(1, $log->change_payload['item_changes']['removed']);
-        $this->assertEquals('项目2', $log->change_payload['item_changes']['removed'][0]['item_name']);
+        $this->assertEquals('项目2', $log->change_payload['item_changes']['removed'][0]['display_name']);
     }
 
     /**
@@ -142,7 +147,7 @@ class InvoiceAuditTest extends TestCase
     public function test_updating_items_creates_audit_log_with_updated_changes()
     {
         // 创建初始账单
-        $invoice = Invoice::factory()->create([
+        $invoice = Invoice::factory()->unpaid()->create([
             'customer_id' => $this->customer->id,
             'store_id' => $this->store->id,
         ]);
@@ -172,21 +177,22 @@ class InvoiceAuditTest extends TestCase
         // 验证审计日志
         $log = AuditLog::where('auditable_id', $invoice->id)
             ->where('auditable_type', Invoice::class)
-            ->where('action', 'updated')
-            ->latest()
+            ->where('action', AuditLog::ACTION_UPDATE)
+            ->orderByDesc('id')
             ->first();
 
         $this->assertNotNull($log);
         $this->assertNotNull($log->change_payload);
-        $this->assertEquals(1, $log->change_payload['stats']['updated_count']);
+        $this->assertEquals(1, $log->change_payload['stats']['item_updated_count']);
         $this->assertCount(1, $log->change_payload['item_changes']['updated']);
 
         $updatedItem = $log->change_payload['item_changes']['updated'][0];
         $this->assertArrayHasKey('field_changes', $updatedItem);
-        $this->assertArrayHasKey('item_name', $updatedItem['field_changes']);
-        $this->assertArrayHasKey('quantity', $updatedItem['field_changes']);
-        $this->assertEquals('原始名称', $updatedItem['field_changes']['item_name']['old']);
-        $this->assertEquals('新名称', $updatedItem['field_changes']['item_name']['new']);
+        $fieldChanges = collect($updatedItem['field_changes'])->keyBy('field');
+        $this->assertTrue($fieldChanges->has('item_name'));
+        $this->assertTrue($fieldChanges->has('quantity'));
+        $this->assertEquals('原始名称', $fieldChanges['item_name']['before']);
+        $this->assertEquals('新名称', $fieldChanges['item_name']['after']);
     }
 
     /**
@@ -195,7 +201,7 @@ class InvoiceAuditTest extends TestCase
     public function test_clearing_nullable_fields_is_tracked_as_update()
     {
         // 创建初始账单
-        $invoice = Invoice::factory()->create([
+        $invoice = Invoice::factory()->unpaid()->create([
             'customer_id' => $this->customer->id,
             'store_id' => $this->store->id,
         ]);
@@ -229,18 +235,19 @@ class InvoiceAuditTest extends TestCase
         // 验证审计日志记录了这次修改
         $log = AuditLog::where('auditable_id', $invoice->id)
             ->where('auditable_type', Invoice::class)
-            ->where('action', 'updated')
-            ->latest()
+            ->where('action', AuditLog::ACTION_UPDATE)
+            ->orderByDesc('id')
             ->first();
 
         $this->assertNotNull($log);
         $this->assertNotNull($log->change_payload);
-        $this->assertEquals(1, $log->change_payload['stats']['updated_count']);
+        $this->assertEquals(1, $log->change_payload['stats']['item_updated_count']);
 
         $updatedItem = $log->change_payload['item_changes']['updated'][0];
-        $this->assertArrayHasKey('item_description', $updatedItem['field_changes']);
-        $this->assertEquals('有描述', $updatedItem['field_changes']['item_description']['old']);
-        $this->assertNull($updatedItem['field_changes']['item_description']['new']);
+        $fieldChanges = collect($updatedItem['field_changes'])->keyBy('field');
+        $this->assertTrue($fieldChanges->has('item_description'));
+        $this->assertEquals('有描述', $fieldChanges['item_description']['before']);
+        $this->assertNull($fieldChanges['item_description']['after']);
     }
 
     /**
@@ -249,7 +256,7 @@ class InvoiceAuditTest extends TestCase
     public function test_mixed_item_changes_are_tracked_correctly()
     {
         // 创建初始账单（两条明细）
-        $invoice = Invoice::factory()->create([
+        $invoice = Invoice::factory()->unpaid()->create([
             'customer_id' => $this->customer->id,
             'store_id' => $this->store->id,
         ]);
@@ -288,16 +295,16 @@ class InvoiceAuditTest extends TestCase
         // 验证审计日志
         $log = AuditLog::where('auditable_id', $invoice->id)
             ->where('auditable_type', Invoice::class)
-            ->where('action', 'updated')
-            ->latest()
+            ->where('action', AuditLog::ACTION_UPDATE)
+            ->orderByDesc('id')
             ->first();
 
         $this->assertNotNull($log);
         $this->assertNotNull($log->change_payload);
-        $this->assertEquals(1, $log->change_payload['stats']['added_count']);
-        $this->assertEquals(1, $log->change_payload['stats']['removed_count']);
-        $this->assertEquals(1, $log->change_payload['stats']['updated_count']);
-        $this->assertEquals(3, $log->change_payload['stats']['total_change_count']);
+        $this->assertEquals(1, $log->change_payload['stats']['item_added_count']);
+        $this->assertEquals(1, $log->change_payload['stats']['item_removed_count']);
+        $this->assertEquals(1, $log->change_payload['stats']['item_updated_count']);
+        $this->assertEquals(4, $log->change_payload['stats']['total_change_count']);
     }
 
     /**
@@ -305,7 +312,7 @@ class InvoiceAuditTest extends TestCase
      */
     public function test_duplicate_line_uid_in_request_is_rejected()
     {
-        $invoice = Invoice::factory()->create([
+        $invoice = Invoice::factory()->unpaid()->create([
             'customer_id' => $this->customer->id,
             'store_id' => $this->store->id,
         ]);
@@ -339,7 +346,7 @@ class InvoiceAuditTest extends TestCase
      */
     public function test_change_payload_structure_is_complete()
     {
-        $invoice = Invoice::factory()->create([
+        $invoice = Invoice::factory()->unpaid()->create([
             'customer_id' => $this->customer->id,
             'store_id' => $this->store->id,
         ]);
@@ -368,8 +375,8 @@ class InvoiceAuditTest extends TestCase
         // 验证 change_payload 结构
         $log = AuditLog::where('auditable_id', $invoice->id)
             ->where('auditable_type', Invoice::class)
-            ->where('action', 'updated')
-            ->latest()
+            ->where('action', AuditLog::ACTION_UPDATE)
+            ->orderByDesc('id')
             ->first();
 
         $payload = $log->change_payload;
@@ -385,15 +392,14 @@ class InvoiceAuditTest extends TestCase
         $this->assertArrayHasKey('financial_effect', $payload);
 
         // 验证 stats 结构
-        $this->assertArrayHasKey('added_count', $payload['stats']);
-        $this->assertArrayHasKey('removed_count', $payload['stats']);
-        $this->assertArrayHasKey('updated_count', $payload['stats']);
+        $this->assertArrayHasKey('item_added_count', $payload['stats']);
+        $this->assertArrayHasKey('item_removed_count', $payload['stats']);
+        $this->assertArrayHasKey('item_updated_count', $payload['stats']);
         $this->assertArrayHasKey('total_change_count', $payload['stats']);
 
         // 验证 financial_effect 结构
-        $this->assertArrayHasKey('old_total', $payload['financial_effect']);
-        $this->assertArrayHasKey('new_total', $payload['financial_effect']);
+        $this->assertArrayHasKey('old_amount', $payload['financial_effect']);
+        $this->assertArrayHasKey('new_amount', $payload['financial_effect']);
         $this->assertArrayHasKey('delta', $payload['financial_effect']);
     }
 }
-

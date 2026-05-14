@@ -14,7 +14,7 @@ class AttachmentScopeResolver
     /**
      * 解析附件的作用域类型
      *
-     * @param Model $attachment 附件模型实例
+     * @param  Model  $attachment  附件模型实例
      * @return string 'global' 或 'store'
      */
     public function resolve(Model $attachment): string

@@ -77,4 +77,4 @@ class Role extends Model
     {
         return $this->permissions()->where('slug', $permission)->exists();
     }
-} 
+}

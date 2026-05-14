@@ -15,10 +15,10 @@ class MoneyHelper
 
     /**
      * 比较两个金额
-     * 
-     * @param float|string $amount1 第一个金额
-     * @param float|string $amount2 第二个金额
-     * @param int $scale 小数位数
+     *
+     * @param  float|string  $amount1  第一个金额
+     * @param  float|string  $amount2  第二个金额
+     * @param  int  $scale  小数位数
      * @return int -1: amount1 < amount2, 0: 相等, 1: amount1 > amount2
      */
     public static function compare($amount1, $amount2, int $scale = self::SCALE): int
@@ -32,10 +32,9 @@ class MoneyHelper
 
     /**
      * 判断金额是否为零
-     * 
-     * @param float|string $amount 金额
-     * @param int $scale 小数位数
-     * @return bool
+     *
+     * @param  float|string  $amount  金额
+     * @param  int  $scale  小数位数
      */
     public static function isZero($amount, int $scale = self::SCALE): bool
     {
@@ -44,10 +43,9 @@ class MoneyHelper
 
     /**
      * 判断金额是否为正数
-     * 
-     * @param float|string $amount 金额
-     * @param int $scale 小数位数
-     * @return bool
+     *
+     * @param  float|string  $amount  金额
+     * @param  int  $scale  小数位数
      */
     public static function isPositive($amount, int $scale = self::SCALE): bool
     {
@@ -56,10 +54,9 @@ class MoneyHelper
 
     /**
      * 判断金额是否为负数
-     * 
-     * @param float|string $amount 金额
-     * @param int $scale 小数位数
-     * @return bool
+     *
+     * @param  float|string  $amount  金额
+     * @param  int  $scale  小数位数
      */
     public static function isNegative($amount, int $scale = self::SCALE): bool
     {
@@ -68,10 +65,9 @@ class MoneyHelper
 
     /**
      * 判断金额是否小于等于零
-     * 
-     * @param float|string $amount 金额
-     * @param int $scale 小数位数
-     * @return bool
+     *
+     * @param  float|string  $amount  金额
+     * @param  int  $scale  小数位数
      */
     public static function isZeroOrNegative($amount, int $scale = self::SCALE): bool
     {
@@ -80,10 +76,9 @@ class MoneyHelper
 
     /**
      * 判断金额是否大于等于零
-     * 
-     * @param float|string $amount 金额
-     * @param int $scale 小数位数
-     * @return bool
+     *
+     * @param  float|string  $amount  金额
+     * @param  int  $scale  小数位数
      */
     public static function isZeroOrPositive($amount, int $scale = self::SCALE): bool
     {
@@ -92,11 +87,10 @@ class MoneyHelper
 
     /**
      * 判断 amount1 是否大于 amount2
-     * 
-     * @param float|string $amount1 第一个金额
-     * @param float|string $amount2 第二个金额
-     * @param int $scale 小数位数
-     * @return bool
+     *
+     * @param  float|string  $amount1  第一个金额
+     * @param  float|string  $amount2  第二个金额
+     * @param  int  $scale  小数位数
      */
     public static function isGreaterThan($amount1, $amount2, int $scale = self::SCALE): bool
     {
@@ -105,11 +99,10 @@ class MoneyHelper
 
     /**
      * 判断 amount1 是否大于等于 amount2
-     * 
-     * @param float|string $amount1 第一个金额
-     * @param float|string $amount2 第二个金额
-     * @param int $scale 小数位数
-     * @return bool
+     *
+     * @param  float|string  $amount1  第一个金额
+     * @param  float|string  $amount2  第二个金额
+     * @param  int  $scale  小数位数
      */
     public static function isGreaterThanOrEqual($amount1, $amount2, int $scale = self::SCALE): bool
     {
@@ -118,11 +111,10 @@ class MoneyHelper
 
     /**
      * 判断 amount1 是否小于 amount2
-     * 
-     * @param float|string $amount1 第一个金额
-     * @param float|string $amount2 第二个金额
-     * @param int $scale 小数位数
-     * @return bool
+     *
+     * @param  float|string  $amount1  第一个金额
+     * @param  float|string  $amount2  第二个金额
+     * @param  int  $scale  小数位数
      */
     public static function isLessThan($amount1, $amount2, int $scale = self::SCALE): bool
     {
@@ -131,11 +123,10 @@ class MoneyHelper
 
     /**
      * 判断 amount1 是否小于等于 amount2
-     * 
-     * @param float|string $amount1 第一个金额
-     * @param float|string $amount2 第二个金额
-     * @param int $scale 小数位数
-     * @return bool
+     *
+     * @param  float|string  $amount1  第一个金额
+     * @param  float|string  $amount2  第二个金额
+     * @param  int  $scale  小数位数
      */
     public static function isLessThanOrEqual($amount1, $amount2, int $scale = self::SCALE): bool
     {
@@ -144,11 +135,10 @@ class MoneyHelper
 
     /**
      * 判断两个金额是否相等
-     * 
-     * @param float|string $amount1 第一个金额
-     * @param float|string $amount2 第二个金额
-     * @param int $scale 小数位数
-     * @return bool
+     *
+     * @param  float|string  $amount1  第一个金额
+     * @param  float|string  $amount2  第二个金额
+     * @param  int  $scale  小数位数
      */
     public static function equals($amount1, $amount2, int $scale = self::SCALE): bool
     {
@@ -157,11 +147,10 @@ class MoneyHelper
 
     /**
      * 加法
-     * 
-     * @param float|string $amount1 第一个金额
-     * @param float|string $amount2 第二个金额
-     * @param int $scale 小数位数
-     * @return string
+     *
+     * @param  float|string  $amount1  第一个金额
+     * @param  float|string  $amount2  第二个金额
+     * @param  int  $scale  小数位数
      */
     public static function add($amount1, $amount2, int $scale = self::SCALE): string
     {
@@ -174,11 +163,10 @@ class MoneyHelper
 
     /**
      * 减法
-     * 
-     * @param float|string $amount1 被减数
-     * @param float|string $amount2 减数
-     * @param int $scale 小数位数
-     * @return string
+     *
+     * @param  float|string  $amount1  被减数
+     * @param  float|string  $amount2  减数
+     * @param  int  $scale  小数位数
      */
     public static function subtract($amount1, $amount2, int $scale = self::SCALE): string
     {
@@ -191,11 +179,10 @@ class MoneyHelper
 
     /**
      * 乘法
-     * 
-     * @param float|string $amount 金额
-     * @param float|string $multiplier 乘数
-     * @param int $scale 小数位数
-     * @return string
+     *
+     * @param  float|string  $amount  金额
+     * @param  float|string  $multiplier  乘数
+     * @param  int  $scale  小数位数
      */
     public static function multiply($amount, $multiplier, int $scale = self::SCALE): string
     {
@@ -208,11 +195,11 @@ class MoneyHelper
 
     /**
      * 除法
-     * 
-     * @param float|string $amount 被除数
-     * @param float|string $divisor 除数
-     * @param int $scale 小数位数
-     * @return string
+     *
+     * @param  float|string  $amount  被除数
+     * @param  float|string  $divisor  除数
+     * @param  int  $scale  小数位数
+     *
      * @throws \InvalidArgumentException 如果除数为零
      */
     public static function divide($amount, $divisor, int $scale = self::SCALE): string
@@ -230,11 +217,10 @@ class MoneyHelper
 
     /**
      * 取两个金额中的较小值
-     * 
-     * @param float|string $amount1 第一个金额
-     * @param float|string $amount2 第二个金额
-     * @param int $scale 小数位数
-     * @return string
+     *
+     * @param  float|string  $amount1  第一个金额
+     * @param  float|string  $amount2  第二个金额
+     * @param  int  $scale  小数位数
      */
     public static function min($amount1, $amount2, int $scale = self::SCALE): string
     {
@@ -245,11 +231,10 @@ class MoneyHelper
 
     /**
      * 取两个金额中的较大值
-     * 
-     * @param float|string $amount1 第一个金额
-     * @param float|string $amount2 第二个金额
-     * @param int $scale 小数位数
-     * @return string
+     *
+     * @param  float|string  $amount1  第一个金额
+     * @param  float|string  $amount2  第二个金额
+     * @param  int  $scale  小数位数
      */
     public static function max($amount1, $amount2, int $scale = self::SCALE): string
     {
@@ -260,10 +245,9 @@ class MoneyHelper
 
     /**
      * 确保金额不为负数
-     * 
-     * @param float|string $amount 金额
-     * @param int $scale 小数位数
-     * @return string
+     *
+     * @param  float|string  $amount  金额
+     * @param  int  $scale  小数位数
      */
     public static function ensurePositive($amount, int $scale = self::SCALE): string
     {
@@ -272,10 +256,9 @@ class MoneyHelper
 
     /**
      * 格式化金额
-     * 
-     * @param float|string $amount 金额
-     * @param int $scale 小数位数
-     * @return string
+     *
+     * @param  float|string  $amount  金额
+     * @param  int  $scale  小数位数
      */
     public static function format($amount, int $scale = self::SCALE): string
     {
@@ -284,9 +267,8 @@ class MoneyHelper
 
     /**
      * 转换为浮点数
-     * 
-     * @param float|string $amount 金额
-     * @return float
+     *
+     * @param  float|string  $amount  金额
      */
     public static function toFloat($amount): float
     {
@@ -295,9 +277,8 @@ class MoneyHelper
 
     /**
      * 标准化金额字符串
-     * 
-     * @param float|string|null $amount 金额
-     * @return string
+     *
+     * @param  float|string|null  $amount  金额
      */
     private static function normalize($amount): string
     {
@@ -309,11 +290,10 @@ class MoneyHelper
         $normalized = str_replace([',', ' '], '', (string) $amount);
 
         // 确保是有效数字
-        if (!is_numeric($normalized)) {
+        if (! is_numeric($normalized)) {
             return '0';
         }
 
         return $normalized;
     }
 }
-

@@ -7,11 +7,10 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\DB;
 
 class Invoice extends Model
 {
-    use HasFactory, Auditable;
+    use Auditable, HasFactory;
 
     /**
      * 审计日志排除的字段（这些字段变更不记录）
@@ -98,7 +97,7 @@ class Invoice extends Model
 
     /**
      * 更新账单状态
-     * 
+     *
      * 此方法会自动检测是否有优惠减免，并据此计算正确的状态
      * 使用 MoneyHelper 确保金额比较的精度
      */
@@ -178,7 +177,7 @@ class Invoice extends Model
 
     /**
      * 获取总优惠减免金额
-     * 
+     *
      * 优化：优先使用已加载的关系数据，避免 N+1 查询
      */
     public function getTotalDiscountAmountAttribute(): float
@@ -210,7 +209,7 @@ class Invoice extends Model
 
     /**
      * 更新账单状态（考虑优惠减免）
-     * 
+     *
      * @deprecated 请使用 updateStatus()，该方法现在已自动考虑优惠减免
      */
     public function updateStatusWithDiscounts(): void
@@ -230,9 +229,6 @@ class Invoice extends Model
     /**
      * Prepare a date for array / JSON serialization.
      * 使用本地时区格式，避免前端时区转换问题
-     *
-     * @param  \DateTimeInterface  $date
-     * @return string
      */
     protected function serializeDate(\DateTimeInterface $date): string
     {

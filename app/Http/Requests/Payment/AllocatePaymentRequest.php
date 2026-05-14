@@ -7,7 +7,7 @@ use Illuminate\Foundation\Http\FormRequest;
 
 /**
  * 还款分配请求验证
- * 
+ *
  * 将 PaymentController::allocate() 中的验证逻辑抽离到此处
  */
 class AllocatePaymentRequest extends FormRequest
@@ -24,11 +24,12 @@ class AllocatePaymentRequest extends FormRequest
             $payment = Payment::find($payment);
         }
 
-        if (!$payment) {
+        if (! $payment) {
             return false;
         }
 
         $user = $this->user();
+
         return $user->isAdmin() || $user->belongsToStore($payment->store_id);
     }
 

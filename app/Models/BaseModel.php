@@ -13,9 +13,6 @@ abstract class BaseModel extends Model
 {
     /**
      * 为数组 / JSON 序列化准备日期格式
-     *
-     * @param  \DateTimeInterface  $date
-     * @return string
      */
     protected function serializeDate(\DateTimeInterface $date): string
     {

@@ -2,37 +2,44 @@
 
 namespace Tests\Unit;
 
-use Tests\TestCase;
-use Tests\Traits\CreatesTestUsers;
-use App\Models\User;
-use App\Models\Store;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentDiscount;
+use App\Models\Store;
+use App\Models\User;
 use App\Services\PaymentDiscountService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
+use Tests\TestCase;
+use Tests\Traits\CreatesTestUsers;
 
 class PaymentDiscountServiceTest extends TestCase
 {
-    use RefreshDatabase, CreatesTestUsers;
+    use CreatesTestUsers, RefreshDatabase;
 
     protected PaymentDiscountService $service;
+
     protected User $admin;
+
     protected User $storeOwner;
+
     protected User $storeStaff;
+
     protected Store $store;
+
     protected Customer $customer;
+
     protected Invoice $invoice1;
+
     protected Invoice $invoice2;
+
     protected Payment $payment;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->service = new PaymentDiscountService();
+        $this->service = new PaymentDiscountService;
 
         // 确保基础角色存在
         $this->ensureRolesExist();
@@ -54,7 +61,7 @@ class PaymentDiscountServiceTest extends TestCase
             'customer_id' => $this->customer->id,
             'amount' => 1500.00,
             'paid_amount' => 0,
-            'status' => 'unpaid'
+            'status' => 'unpaid',
         ]);
 
         $this->invoice2 = Invoice::factory()->create([
@@ -62,7 +69,7 @@ class PaymentDiscountServiceTest extends TestCase
             'customer_id' => $this->customer->id,
             'amount' => 835.00,
             'paid_amount' => 0,
-            'status' => 'unpaid'
+            'status' => 'unpaid',
         ]);
 
         // 创建测试还款
@@ -70,7 +77,7 @@ class PaymentDiscountServiceTest extends TestCase
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'amount' => 2300.00,
-            'received_by' => $this->storeOwner->id
+            'received_by' => $this->storeOwner->id,
         ]);
     }
 
@@ -95,8 +102,8 @@ class PaymentDiscountServiceTest extends TestCase
                 'invoice_id' => $this->invoice2->id,
                 'amount' => 35.00,
                 'type' => PaymentDiscount::TYPE_DISCOUNT,
-                'reason' => '优惠抹零测试'
-            ]
+                'reason' => '优惠抹零测试',
+            ],
         ];
 
         $result = $this->service->processDiscountScenario(
@@ -115,7 +122,7 @@ class PaymentDiscountServiceTest extends TestCase
             'invoice_id' => $this->invoice2->id,
             'discount_amount' => 35.00,
             'discount_type' => PaymentDiscount::TYPE_DISCOUNT,
-            'approved_by' => $this->storeOwner->id
+            'approved_by' => $this->storeOwner->id,
         ]);
 
         // 验证账单状态更新
@@ -167,8 +174,8 @@ class PaymentDiscountServiceTest extends TestCase
                 'invoice_id' => $this->invoice1->id,
                 'amount' => 35.00,
                 'type' => PaymentDiscount::TYPE_DISCOUNT,
-                'reason' => '测试折扣'
-            ]
+                'reason' => '测试折扣',
+            ],
         ];
 
         $errors = $this->service->validateDiscountPermissions(
@@ -185,8 +192,8 @@ class PaymentDiscountServiceTest extends TestCase
                 'invoice_id' => $this->invoice1->id,
                 'amount' => 5000.00, // 超过限额
                 'type' => PaymentDiscount::TYPE_DISCOUNT,
-                'reason' => '测试折扣'
-            ]
+                'reason' => '测试折扣',
+            ],
         ];
 
         $errors = $this->service->validateDiscountPermissions(
@@ -207,7 +214,7 @@ class PaymentDiscountServiceTest extends TestCase
             'invoice_id' => $this->invoice1->id,
             'discount_amount' => 50.00,
             'discount_type' => PaymentDiscount::TYPE_DISCOUNT,
-            'approved_by' => $this->storeOwner->id
+            'approved_by' => $this->storeOwner->id,
         ]);
 
         PaymentDiscount::factory()->create([
@@ -215,7 +222,7 @@ class PaymentDiscountServiceTest extends TestCase
             'invoice_id' => $this->invoice2->id,
             'discount_amount' => 25.00,
             'discount_type' => PaymentDiscount::TYPE_PROMOTION,
-            'approved_by' => $this->storeOwner->id
+            'approved_by' => $this->storeOwner->id,
         ]);
 
         $statistics = $this->service->getDiscountStatistics($this->store->id);
@@ -236,8 +243,8 @@ class PaymentDiscountServiceTest extends TestCase
                 'invoice_id' => 99999,
                 'amount' => 35.00,
                 'type' => PaymentDiscount::TYPE_DISCOUNT,
-                'reason' => '测试错误处理'
-            ]
+                'reason' => '测试错误处理',
+            ],
         ];
 
         $this->expectException(\Exception::class);
@@ -250,7 +257,7 @@ class PaymentDiscountServiceTest extends TestCase
 
         // 验证没有创建任何折扣记录
         $this->assertDatabaseMissing('payment_discounts', [
-            'payment_id' => $this->payment->id
+            'payment_id' => $this->payment->id,
         ]);
     }
 
@@ -262,8 +269,8 @@ class PaymentDiscountServiceTest extends TestCase
                 'invoice_id' => $this->invoice1->id,
                 'amount' => 35.00,
                 'type' => PaymentDiscount::TYPE_DISCOUNT,
-                'reason' => '日志测试'
-            ]
+                'reason' => '日志测试',
+            ],
         ];
 
         // 启用日志记录

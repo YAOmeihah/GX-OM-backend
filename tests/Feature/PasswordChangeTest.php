@@ -15,10 +15,10 @@ class PasswordChangeTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         // 创建测试用户
         $this->user = User::factory()->create([
-            'password' => Hash::make('old_password')
+            'password' => Hash::make('old_password'),
         ]);
     }
 
@@ -30,14 +30,14 @@ class PasswordChangeTest extends TestCase
         $response = $this->putJson('/api/user/password', [
             'current_password' => 'old_password',
             'new_password' => 'new_password123',
-            'new_password_confirmation' => 'new_password123'
+            'new_password_confirmation' => 'new_password123',
         ]);
 
         $response->assertStatus(200)
-                ->assertJson([
-                    'success' => true,
-                    'message' => '密码修改成功'
-                ]);
+            ->assertJson([
+                'success' => true,
+                'message' => '密码修改成功',
+            ]);
 
         // 验证密码已更改
         $this->user->refresh();
@@ -52,11 +52,11 @@ class PasswordChangeTest extends TestCase
         $response = $this->putJson('/api/user/password', [
             'current_password' => 'wrong_password',
             'new_password' => 'new_password123',
-            'new_password_confirmation' => 'new_password123'
+            'new_password_confirmation' => 'new_password123',
         ]);
 
         $response->assertStatus(422)
-                ->assertJsonValidationErrors(['current_password']);
+            ->assertJsonValidationErrors(['current_password']);
     }
 
     /** @test */
@@ -67,11 +67,11 @@ class PasswordChangeTest extends TestCase
         $response = $this->putJson('/api/user/password', [
             'current_password' => 'old_password',
             'new_password' => 'new_password123',
-            'new_password_confirmation' => 'different_password'
+            'new_password_confirmation' => 'different_password',
         ]);
 
         $response->assertStatus(422)
-                ->assertJsonValidationErrors(['new_password']);
+            ->assertJsonValidationErrors(['new_password']);
     }
 
     /** @test */
@@ -82,11 +82,11 @@ class PasswordChangeTest extends TestCase
         $response = $this->putJson('/api/user/password', [
             'current_password' => 'old_password',
             'new_password' => '123',
-            'new_password_confirmation' => '123'
+            'new_password_confirmation' => '123',
         ]);
 
         $response->assertStatus(422)
-                ->assertJsonValidationErrors(['new_password']);
+            ->assertJsonValidationErrors(['new_password']);
     }
 
     /** @test */
@@ -97,11 +97,11 @@ class PasswordChangeTest extends TestCase
         $response = $this->putJson('/api/user/password', [
             'current_password' => 'old_password',
             'new_password' => 'old_password',
-            'new_password_confirmation' => 'old_password'
+            'new_password_confirmation' => 'old_password',
         ]);
 
         $response->assertStatus(422)
-                ->assertJsonValidationErrors(['new_password']);
+            ->assertJsonValidationErrors(['new_password']);
     }
 
     /** @test */
@@ -110,7 +110,7 @@ class PasswordChangeTest extends TestCase
         $response = $this->putJson('/api/user/password', [
             'current_password' => 'old_password',
             'new_password' => 'new_password123',
-            'new_password_confirmation' => 'new_password123'
+            'new_password_confirmation' => 'new_password123',
         ]);
 
         $response->assertStatus(401);
@@ -124,25 +124,25 @@ class PasswordChangeTest extends TestCase
         // 测试缺少current_password
         $response = $this->putJson('/api/user/password', [
             'new_password' => 'new_password123',
-            'new_password_confirmation' => 'new_password123'
+            'new_password_confirmation' => 'new_password123',
         ]);
         $response->assertStatus(422)
-                ->assertJsonValidationErrors(['current_password']);
+            ->assertJsonValidationErrors(['current_password']);
 
         // 测试缺少new_password
         $response = $this->putJson('/api/user/password', [
             'current_password' => 'old_password',
-            'new_password_confirmation' => 'new_password123'
+            'new_password_confirmation' => 'new_password123',
         ]);
         $response->assertStatus(422)
-                ->assertJsonValidationErrors(['new_password']);
+            ->assertJsonValidationErrors(['new_password']);
 
         // 测试缺少new_password_confirmation
         $response = $this->putJson('/api/user/password', [
             'current_password' => 'old_password',
-            'new_password' => 'new_password123'
+            'new_password' => 'new_password123',
         ]);
         $response->assertStatus(422)
-                ->assertJsonValidationErrors(['new_password_confirmation']);
+            ->assertJsonValidationErrors(['new_password_confirmation']);
     }
 }

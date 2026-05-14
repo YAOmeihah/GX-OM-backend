@@ -88,8 +88,9 @@ class PermissionSeeder extends Seeder
         $storeOwner = Role::where('slug', 'store_owner')->first();
         $storeStaff = Role::where('slug', 'store_staff')->first();
 
-        if (!$admin || !$storeOwner || !$storeStaff) {
+        if (! $admin || ! $storeOwner || ! $storeStaff) {
             $this->command->warn('⚠ 角色不存在，请先运行 RoleSeeder');
+
             return;
         }
 
