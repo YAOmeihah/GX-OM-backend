@@ -179,6 +179,42 @@ class PaymentDiscountApiTest extends TestCase
     }
 
     /** @test */
+    public function it_rejects_creating_payment_when_allocations_plus_discounts_exceed_payment_amount_gap()
+    {
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->postJson('/api/payments', [
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 2300.00,
+            'payment_method' => 'cash',
+            'apply_discount' => true,
+            'allocations' => [
+                [
+                    'invoice_id' => $this->invoice1->id,
+                    'amount' => 2300.00,
+                ],
+            ],
+            'discount_data' => [
+                [
+                    'invoice_id' => $this->invoice2->id,
+                    'amount' => 36.00,
+                    'type' => 'discount',
+                    'reason' => '超过付款差额',
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $this->assertDatabaseMissing('payment_discounts', [
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 36.00,
+        ]);
+    }
+
+    /** @test */
     public function it_rejects_discount_invoice_from_another_store_when_creating_payment()
     {
         Sanctum::actingAs($this->storeOwner);
@@ -244,6 +280,97 @@ class PaymentDiscountApiTest extends TestCase
 
         $response = $this->postJson("/api/payments/{$this->payment->id}/apply-discount", $discountData);
         $response->assertStatus(403);
+    }
+
+    /** @test */
+    public function it_returns_403_when_store_staff_applies_manager_approval_discount_type_without_type_error()
+    {
+        Sanctum::actingAs($this->storeStaff);
+
+        $response = $this->postJson("/api/payments/{$this->payment->id}/apply-discount", [
+            'discount_data' => [
+                [
+                    'invoice_id' => $this->invoice2->id,
+                    'amount' => 35.00,
+                    'type' => 'write_off',
+                    'reason' => '店员无权核销',
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(403)
+            ->assertJsonPath('success', false);
+
+        $this->assertDatabaseMissing('payment_discounts', [
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 35.00,
+            'discount_type' => 'write_off',
+        ]);
+    }
+
+    /** @test */
+    public function it_rejects_discount_entries_with_reason_shorter_than_audit_minimum()
+    {
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->postJson("/api/payments/{$this->payment->id}/apply-discount", [
+            'discount_data' => [
+                [
+                    'invoice_id' => $this->invoice2->id,
+                    'amount' => 35.00,
+                    'type' => 'discount',
+                    'reason' => str_repeat('短', config('payment.audit.min_reason_length') - 1),
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $this->assertDatabaseMissing('payment_discounts', [
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 35.00,
+        ]);
+    }
+
+    /** @test */
+    public function it_blocks_new_discounts_when_today_store_approved_discounts_exceed_daily_limit()
+    {
+        config(['payment.daily_discount_limit' => 50]);
+
+        PaymentDiscount::factory()->create([
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice1->id,
+            'discount_amount' => 45.00,
+            'discount_type' => 'discount',
+            'approved_by' => $this->storeOwner->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->postJson("/api/payments/{$this->payment->id}/apply-discount", [
+            'discount_data' => [
+                [
+                    'invoice_id' => $this->invoice2->id,
+                    'amount' => 10.00,
+                    'type' => 'discount',
+                    'reason' => '超过每日限额',
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $this->assertDatabaseMissing('payment_discounts', [
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 10.00,
+        ]);
     }
 
     /** @test */

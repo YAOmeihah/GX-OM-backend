@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Customer\StoreCustomerRequest;
 use App\Http\Requests\Customer\UpdateCustomerRequest;
 use App\Models\Customer;
+use App\Services\DiscountValidationException;
+use App\Services\PaymentDiscountService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -723,6 +725,7 @@ class CustomerController extends ApiController
         $unpaidInvoices = $customer->invoices()
             ->where('store_id', $storeId)
             ->whereIn('status', ['unpaid', 'partially_paid', 'overdue'])
+            ->with('discounts')
             ->orderByRaw("CASE WHEN status = 'overdue' THEN 0 ELSE 1 END")
             ->orderBy('created_at', 'asc')
             ->get();
@@ -733,7 +736,7 @@ class CustomerController extends ApiController
 
         // 计算实际总欠款（考虑已有减免）
         $totalDebt = $unpaidInvoices->sum(function ($invoice) {
-            return max(0, $invoice->amount - $invoice->paid_amount - $invoice->total_discount_amount);
+            return $invoice->actual_remaining_amount;
         });
 
         // 并发校验：前端传入的期望欠款与服务端实际欠款对比
@@ -754,119 +757,154 @@ class CustomerController extends ApiController
             return $this->errorResponse('收款金额超过总欠款 ('.number_format($totalDebt, 2).')', 422);
         }
 
-        // 开始事务
-        return DB::transaction(function () use ($customer, $storeId, $paymentAmount, $paymentMethod, $remarks, $applyDiscount, $unpaidInvoices, $totalDebt) {
-            $user = Auth::user();
+        try {
+            // 开始事务
+            return DB::transaction(function () use ($customer, $storeId, $paymentAmount, $paymentMethod, $remarks, $applyDiscount, $unpaidInvoices, $totalDebt) {
+                $user = Auth::user();
 
-            // 生成唯一还款号
-            $store = \App\Models\Store::find($storeId);
-            $paymentNumber = 'PAY-'.($store->code ?? 'STORE').'-'.date('Ymd').'-'.\Illuminate\Support\Str::random(5);
+                // 生成唯一还款号
+                $store = \App\Models\Store::find($storeId);
+                $paymentNumber = 'PAY-'.($store->code ?? 'STORE').'-'.date('Ymd').'-'.\Illuminate\Support\Str::random(5);
 
-            // 创建还款记录
-            $payment = \App\Models\Payment::create([
-                'payment_number' => $paymentNumber,
-                'customer_id' => $customer->id,
-                'store_id' => $storeId,
-                'amount' => $paymentAmount,
-                'allocated_amount' => 0,
-                'payment_method' => $paymentMethod,
-                'remarks' => $remarks,
-                'received_by' => $user->id,
-            ]);
+                // 创建还款记录
+                $payment = \App\Models\Payment::create([
+                    'payment_number' => $paymentNumber,
+                    'customer_id' => $customer->id,
+                    'store_id' => $storeId,
+                    'amount' => $paymentAmount,
+                    'allocated_amount' => 0,
+                    'payment_method' => $paymentMethod,
+                    'remarks' => $remarks,
+                    'received_by' => $user->id,
+                ]);
 
-            $allocations = [];
-            $discounts = [];
-            $remainingPayment = $paymentAmount;
-            $invoicesCleared = 0;
-            $totalDiscountApplied = 0;
+                $allocations = [];
+                $discounts = [];
+                $remainingPayment = $paymentAmount;
+                $invoicesCleared = 0;
+                $totalDiscountApplied = 0;
+                $pendingDiscounts = [];
 
-            foreach ($unpaidInvoices as $invoice) {
-                // 计算账单实际待付金额（考虑已有减免）
-                $invoiceRemaining = max(0, $invoice->amount - $invoice->paid_amount - $invoice->total_discount_amount);
+                foreach ($unpaidInvoices as $invoice) {
+                    // 计算账单实际待付金额（考虑已有减免）
+                    $invoiceRemaining = $invoice->actual_remaining_amount;
 
-                if ($invoiceRemaining <= 0) {
-                    continue;
-                }
+                    if ($invoiceRemaining <= 0) {
+                        continue;
+                    }
 
-                // 分配金额
-                $allocateAmount = min($remainingPayment, $invoiceRemaining);
+                    // 分配金额
+                    $allocateAmount = min($remainingPayment, $invoiceRemaining);
+                    $discountNeeded = $invoiceRemaining - $allocateAmount;
 
-                if ($allocateAmount > 0) {
-                    // 创建分配记录
-                    \App\Models\PaymentAllocation::create([
-                        'payment_id' => $payment->id,
-                        'invoice_id' => $invoice->id,
-                        'amount' => $allocateAmount,
-                        'allocated_by' => $user->id,
-                    ]);
-
-                    // 更新账单已付金额
-                    $invoice->paid_amount = $invoice->paid_amount + $allocateAmount;
-
-                    $allocations[] = [
-                        'invoice_id' => $invoice->id,
-                        'amount' => number_format($allocateAmount, 2, '.', ''),
-                    ];
+                    if ($applyDiscount && $discountNeeded > 0) {
+                        $pendingDiscounts[] = [
+                            'invoice_id' => $invoice->id,
+                            'amount' => $discountNeeded,
+                            'type' => 'write_off',
+                            'reason' => '一键清账减免',
+                        ];
+                    }
 
                     $remainingPayment -= $allocateAmount;
                 }
 
-                // 计算差额（需要减免的金额）
-                $discountNeeded = $invoiceRemaining - $allocateAmount;
+                if (! empty($pendingDiscounts)) {
+                    app(PaymentDiscountService::class)->validateDiscountRequest($payment, $pendingDiscounts, $user->id, 'clear_debt');
+                }
 
-                // 如果启用自动减免且有差额
-                if ($applyDiscount && $discountNeeded > 0) {
-                    // 创建减免记录
-                    \App\Models\PaymentDiscount::create([
-                        'payment_id' => $payment->id,
-                        'invoice_id' => $invoice->id,
-                        'discount_amount' => $discountNeeded,
-                        'discount_type' => 'write_off',
-                        'reason' => '一键清账减免',
-                        'approved_by' => $user->id,
-                    ]);
+                $remainingPayment = $paymentAmount;
 
-                    $discounts[] = [
-                        'invoice_id' => $invoice->id,
-                        'amount' => number_format($discountNeeded, 2, '.', ''),
-                    ];
+                foreach ($unpaidInvoices as $invoice) {
+                    // 计算账单实际待付金额（考虑已有减免）
+                    $invoiceRemaining = $invoice->actual_remaining_amount;
 
-                    $totalDiscountApplied += $discountNeeded;
+                    if ($invoiceRemaining <= 0) {
+                        continue;
+                    }
 
-                    // 更新账单为已付清
-                    $invoice->status = 'paid';
-                    $invoice->save();
-                    $invoicesCleared++;
-                } else {
-                    // 更新账单状态
-                    $invoice->updateStatus();
+                    // 分配金额
+                    $allocateAmount = min($remainingPayment, $invoiceRemaining);
 
-                    if ($invoice->status === 'paid') {
+                    if ($allocateAmount > 0) {
+                        // 创建分配记录
+                        \App\Models\PaymentAllocation::create([
+                            'payment_id' => $payment->id,
+                            'invoice_id' => $invoice->id,
+                            'amount' => $allocateAmount,
+                            'allocated_by' => $user->id,
+                        ]);
+
+                        // 更新账单已付金额
+                        $invoice->paid_amount = $invoice->paid_amount + $allocateAmount;
+
+                        $allocations[] = [
+                            'invoice_id' => $invoice->id,
+                            'amount' => number_format($allocateAmount, 2, '.', ''),
+                        ];
+
+                        $remainingPayment -= $allocateAmount;
+                    }
+
+                    // 计算差额（需要减免的金额）
+                    $discountNeeded = $invoiceRemaining - $allocateAmount;
+
+                    // 如果启用自动减免且有差额
+                    if ($applyDiscount && $discountNeeded > 0) {
+                        // 创建减免记录
+                        \App\Models\PaymentDiscount::create([
+                            'payment_id' => $payment->id,
+                            'invoice_id' => $invoice->id,
+                            'discount_amount' => $discountNeeded,
+                            'discount_type' => 'write_off',
+                            'reason' => '一键清账减免',
+                            'approved_by' => $user->id,
+                        ]);
+
+                        $discounts[] = [
+                            'invoice_id' => $invoice->id,
+                            'amount' => number_format($discountNeeded, 2, '.', ''),
+                        ];
+
+                        $totalDiscountApplied += $discountNeeded;
+
+                        // 更新账单为已付清
+                        $invoice->status = 'paid';
+                        $invoice->save();
                         $invoicesCleared++;
+                    } else {
+                        // 更新账单状态
+                        $invoice->updateStatus();
+
+                        if ($invoice->status === 'paid') {
+                            $invoicesCleared++;
+                        }
                     }
                 }
-            }
 
-            // 更新还款已分配金额
-            $payment->allocated_amount = $paymentAmount;
-            $payment->save();
+                // 更新还款已分配金额
+                $payment->allocated_amount = $paymentAmount;
+                $payment->save();
 
-            return $this->successResponse([
-                'payment' => [
-                    'id' => $payment->id,
-                    'amount' => number_format((float) $payment->amount, 2, '.', ''),
-                    'payment_number' => $payment->payment_number,
-                ],
-                'allocations' => $allocations,
-                'discounts' => $discounts,
-                'summary' => [
-                    'original_debt' => number_format((float) $totalDebt, 2, '.', ''),
-                    'payment_received' => number_format((float) $paymentAmount, 2, '.', ''),
-                    'discount_applied' => number_format($totalDiscountApplied, 2, '.', ''),
-                    'invoices_cleared' => $invoicesCleared,
-                ],
-            ], '清账成功');
-        });
+                return $this->successResponse([
+                    'payment' => [
+                        'id' => $payment->id,
+                        'amount' => number_format((float) $payment->amount, 2, '.', ''),
+                        'payment_number' => $payment->payment_number,
+                    ],
+                    'allocations' => $allocations,
+                    'discounts' => $discounts,
+                    'summary' => [
+                        'original_debt' => number_format((float) $totalDebt, 2, '.', ''),
+                        'payment_received' => number_format((float) $paymentAmount, 2, '.', ''),
+                        'discount_applied' => number_format($totalDiscountApplied, 2, '.', ''),
+                        'invoices_cleared' => $invoicesCleared,
+                    ],
+                ], '清账成功');
+            });
+        } catch (DiscountValidationException $e) {
+            return $this->errorResponse($e->getMessage(), $e->statusCode());
+        }
     }
 
     /**

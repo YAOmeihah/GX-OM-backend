@@ -8,6 +8,19 @@ use App\Models\PaymentDiscount;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
+class DiscountValidationException extends \Exception
+{
+    public function __construct(string $message, private readonly int $statusCode = 422)
+    {
+        parent::__construct($message);
+    }
+
+    public function statusCode(): int
+    {
+        return $this->statusCode;
+    }
+}
+
 class PaymentDiscountService
 {
     /**
@@ -213,6 +226,84 @@ class PaymentDiscountService
     }
 
     /**
+     * 验证优惠减免规则和审批权限
+     *
+     * @throws DiscountValidationException
+     */
+    public function validateDiscountRequest(
+        Payment $payment,
+        array $discountData,
+        int $approvedBy,
+        string $context = 'apply_discount'
+    ): void {
+        if (empty($discountData)) {
+            throw new DiscountValidationException('优惠减免数据不能为空');
+        }
+
+        $totalRequestAmount = 0.0;
+
+        foreach ($discountData as $index => $data) {
+            $label = '第'.($index + 1).'项';
+            $invoiceId = $data['invoice_id'] ?? null;
+            $amount = (float) ($data['amount'] ?? 0);
+            $type = $data['type'] ?? PaymentDiscount::TYPE_DISCOUNT;
+            $reason = trim((string) ($data['reason'] ?? ''));
+
+            if (! $invoiceId) {
+                throw new DiscountValidationException("{$label}：缺少账单ID");
+            }
+
+            $invoice = Invoice::with('discounts')->find($invoiceId);
+            if (! $invoice) {
+                throw new DiscountValidationException("账单 {$invoiceId} 不存在");
+            }
+
+            if ((int) $invoice->customer_id !== (int) $payment->customer_id || (int) $invoice->store_id !== (int) $payment->store_id) {
+                throw new DiscountValidationException('账单与还款的客户或门店不匹配');
+            }
+
+            if (\App\Helpers\MoneyHelper::isZeroOrNegative($amount)) {
+                throw new DiscountValidationException('折扣金额必须大于0');
+            }
+
+            if (\App\Helpers\MoneyHelper::isGreaterThan($amount, $invoice->actual_remaining_amount)) {
+                throw new DiscountValidationException("账单 {$invoice->invoice_number} 的优惠减免金额超过了剩余未付金额");
+            }
+
+            if (! config("payment.discount_types.{$type}")) {
+                throw new DiscountValidationException("{$label}：无效的折扣类型");
+            }
+
+            if (config('payment.audit.require_reason', true)) {
+                $minLength = (int) config('payment.audit.min_reason_length', 5);
+                if ($reason === '' || mb_strlen($reason) < $minLength) {
+                    throw new DiscountValidationException("{$label}：减免原因不能少于{$minLength}个字符");
+                }
+            }
+
+            if (! $this->canApproveDiscount($approvedBy, $payment->store_id, $type, $amount)) {
+                throw new DiscountValidationException("{$label}：您没有权限进行{$type}类型的优惠减免", 403);
+            }
+
+            $totalRequestAmount = \App\Helpers\MoneyHelper::add($totalRequestAmount, $amount);
+        }
+
+        $todayApprovedAmount = PaymentDiscount::query()
+            ->join('payments', 'payment_discounts.payment_id', '=', 'payments.id')
+            ->where('payments.store_id', $payment->store_id)
+            ->whereDate('payment_discounts.created_at', today())
+            ->sum('payment_discounts.discount_amount');
+
+        $dailyLimit = (float) config('payment.daily_discount_limit', 5000);
+        if (\App\Helpers\MoneyHelper::isGreaterThan(
+            \App\Helpers\MoneyHelper::add($todayApprovedAmount, $totalRequestAmount),
+            $dailyLimit
+        )) {
+            throw new DiscountValidationException('今日优惠减免总额已超过门店每日限额');
+        }
+    }
+
+    /**
      * 建议折扣类型
      */
     private function suggestDiscountType(float $amount): string
@@ -347,7 +438,7 @@ class PaymentDiscountService
             if (\App\Http\Middleware\CheckDiscountPermission::requiresApproval($discountType, $amount)) {
                 // 这里可以添加审批流程的逻辑
                 // 目前简化处理，只有管理员和店长可以进行需要审批的操作
-                if (! $user->hasRole(['admin', 'store_owner'])) {
+                if (! $user->hasRole('admin') && ! $user->hasRole('store_owner')) {
                     $errors[] = '第'.($index + 1).'项：该优惠减免需要管理员或店长审批';
                 }
             }

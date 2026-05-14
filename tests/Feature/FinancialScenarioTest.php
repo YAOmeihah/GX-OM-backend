@@ -106,7 +106,7 @@ class FinancialScenarioTest extends TestCase
                     'invoice_id' => $this->invoice2->id,
                     'amount' => 35.00,
                     'type' => 'discount',
-                    'reason' => '优惠抹零',
+                    'reason' => '优惠抹零确认',
                 ],
             ],
         ];
@@ -131,7 +131,7 @@ class FinancialScenarioTest extends TestCase
         $this->assertEquals(35.00, $discount->discount_amount);
         $this->assertEquals('discount', $discount->discount_type);
         $this->assertEquals($this->invoice2->id, $discount->invoice_id);
-        $this->assertEquals('优惠抹零', $discount->reason);
+        $this->assertEquals('优惠抹零确认', $discount->reason);
 
         // 第五步：验证账单状态更新
         $this->invoice1->refresh();
@@ -389,6 +389,28 @@ class FinancialScenarioTest extends TestCase
         } else {
             $response->assertStatus(403);
         }
+    }
+
+    /** @test */
+    public function it_rejects_clear_debt_write_off_when_store_staff_cannot_approve_generated_discount()
+    {
+        Sanctum::actingAs($this->storeStaff);
+
+        $response = $this->postJson("/api/customers/{$this->customer->id}/clear-debt", [
+            'store_id' => $this->store->id,
+            'payment_amount' => 2300.00,
+            'payment_method' => 'cash',
+            'apply_discount' => true,
+        ]);
+
+        $response->assertStatus(403)
+            ->assertJsonPath('success', false);
+
+        $this->assertDatabaseMissing('payment_discounts', [
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 35.00,
+            'discount_type' => 'write_off',
+        ]);
     }
 
     /** @test */

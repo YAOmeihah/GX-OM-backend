@@ -264,11 +264,20 @@ class PaymentController extends ApiController
 
             // 检查是否需要处理优惠抹零
             if (! empty($validated['apply_discount']) && ! empty($validated['discount_data'])) {
-                // 验证用户是否有权限进行优惠减免
                 $discountService = new PaymentDiscountService;
-                if (! $discountService->canApproveDiscount($user->id, $validated['store_id'])) {
-                    throw new \Exception('您没有权限进行优惠减免操作');
+                $totalAllocated = collect($validated['allocations'] ?? [])->sum('amount');
+                $totalDiscount = collect($validated['discount_data'])->sum('amount');
+                $totalDebt = $customer->unpaidInvoices()->with('discounts')->get()->sum('actual_remaining_amount');
+                $intendedGap = \App\Helpers\MoneyHelper::subtract($totalDebt, $validated['amount']);
+
+                if (\App\Helpers\MoneyHelper::isGreaterThan(
+                    \App\Helpers\MoneyHelper::add($totalAllocated, $totalDiscount),
+                    \App\Helpers\MoneyHelper::add($validated['amount'], max(0, $intendedGap))
+                )) {
+                    throw new \Exception('分配金额与优惠减免总额超过了还款金额和差额');
                 }
+
+                $discountService->validateDiscountRequest($payment, $validated['discount_data'], $user->id, 'create_payment');
 
                 // 先处理前端传来的手动分配（如果有）
                 if (! empty($validated['allocations'])) {
@@ -368,6 +377,10 @@ class PaymentController extends ApiController
             }
 
             return $this->successResponse($payment, '还款记录创建成功', 201);
+        } catch (\App\Services\DiscountValidationException $e) {
+            DB::rollBack();
+
+            return $this->errorResponse($e->getMessage(), $e->statusCode());
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -1204,18 +1217,9 @@ class PaymentController extends ApiController
 
         $discountService = new PaymentDiscountService;
 
-        // 验证用户是否有权限进行优惠减免
-        $permissionErrors = $discountService->validateDiscountPermissions(
-            Auth::id(),
-            $payment->store_id,
-            $validated['discount_data']
-        );
-
-        if (! empty($permissionErrors)) {
-            return $this->errorResponse('权限验证失败：'.implode('; ', $permissionErrors), 403);
-        }
-
         try {
+            $discountService->validateDiscountRequest($payment, $validated['discount_data'], Auth::id(), 'apply_discount');
+
             // 记录操作日志
             $discountService->logDiscountOperation($payment, $validated['discount_data'], Auth::id(), 'create');
 
@@ -1234,6 +1238,8 @@ class PaymentController extends ApiController
                 'result' => $result,
             ], '优惠减免处理成功');
 
+        } catch (\App\Services\DiscountValidationException $e) {
+            return $this->errorResponse($e->getMessage(), $e->statusCode());
         } catch (\Exception $e) {
             // 记录错误日志
             $discountService->logDiscountOperation($payment, $validated['discount_data'], Auth::id(), 'failed');
