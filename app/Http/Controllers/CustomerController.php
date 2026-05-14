@@ -828,7 +828,6 @@ class CustomerController extends ApiController
 
                     if ($allocateAmount > 0) {
                         $payment->allocateToInvoice($invoice, $allocateAmount, $user->id);
-                        $invoice->refresh();
 
                         $allocations[] = [
                             'invoice_id' => $invoice->id,
@@ -838,20 +837,23 @@ class CustomerController extends ApiController
                         $remainingPayment -= $allocateAmount;
                     }
 
-                    // 计算差额（需要减免的金额）
-                    $discountNeeded = $invoiceRemaining - $allocateAmount;
+                    $invoice->refresh();
+                    $invoice->unsetRelation('discounts');
+
+                    // 分配后重新读取 fresh 剩余金额，避免用分配前差额创建过量减免。
+                    $discountNeeded = $invoice->actual_remaining_amount;
 
                     // 如果启用自动减免且有差额
-                    if ($applyDiscount && $discountNeeded > 0) {
-                        // 创建减免记录
-                        \App\Models\PaymentDiscount::create([
-                            'payment_id' => $payment->id,
+                    if ($applyDiscount && \App\Helpers\MoneyHelper::isPositive($discountNeeded)) {
+                        $freshDiscount = [
                             'invoice_id' => $invoice->id,
-                            'discount_amount' => $discountNeeded,
-                            'discount_type' => 'write_off',
+                            'amount' => $discountNeeded,
+                            'type' => 'write_off',
                             'reason' => '一键清账减免',
-                            'approved_by' => $user->id,
-                        ]);
+                        ];
+
+                        app(PaymentDiscountService::class)->validateDiscountRequest($payment, [$freshDiscount], $user->id, 'clear_debt');
+                        $payment->createDiscount($invoice, $discountNeeded, 'write_off', '一键清账减免', $user->id);
 
                         $discounts[] = [
                             'invoice_id' => $invoice->id,
@@ -860,10 +862,13 @@ class CustomerController extends ApiController
 
                         $totalDiscountApplied += $discountNeeded;
 
-                        // 更新账单为已付清
-                        $invoice->status = 'paid';
-                        $invoice->save();
-                        $invoicesCleared++;
+                        $invoice->refresh();
+                        $invoice->unsetRelation('discounts');
+                        $invoice->updateStatus();
+
+                        if ($invoice->status === 'paid') {
+                            $invoicesCleared++;
+                        }
                     } else {
                         // 更新账单状态
                         $invoice->updateStatus();

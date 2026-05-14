@@ -865,6 +865,95 @@ class PaymentDiscountApiTest extends TestCase
     }
 
     /** @test */
+    public function clear_debt_recomputes_write_off_after_fresh_allocation_state_changes()
+    {
+        $this->invoice2->forceFill([
+            'paid_amount' => 835.00,
+            'status' => 'paid',
+        ])->save();
+
+        $active = true;
+        $discountInserted = false;
+        $existingPaymentId = $this->payment->id;
+        $invoiceId = $this->invoice1->id;
+        $approvedBy = $this->storeOwner->id;
+
+        DB::listen(function ($query) use (&$active, &$discountInserted, $existingPaymentId, $invoiceId, $approvedBy) {
+            if (! $active || $discountInserted) {
+                return;
+            }
+
+            $sql = strtolower($query->sql);
+            if (! str_contains($sql, 'insert') || ! str_contains($sql, 'payment_allocations')) {
+                return;
+            }
+
+            $discountInserted = true;
+            PaymentDiscount::factory()->create([
+                'payment_id' => $existingPaymentId,
+                'invoice_id' => $invoiceId,
+                'discount_amount' => 250.00,
+                'discount_type' => 'discount',
+                'approved_by' => $approvedBy,
+            ]);
+        });
+
+        Sanctum::actingAs($this->storeOwner);
+
+        try {
+            $response = $this->postJson("/api/customers/{$this->customer->id}/clear-debt", [
+                'store_id' => $this->store->id,
+                'payment_amount' => 1200.00,
+                'payment_method' => 'cash',
+                'apply_discount' => true,
+            ]);
+        } finally {
+            $active = false;
+        }
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.summary.discount_applied', '50.00')
+            ->assertJsonPath('data.allocations.0.amount', '1200.00')
+            ->assertJsonPath('data.discounts.0.amount', '50.00');
+
+        $this->assertDatabaseHas('payment_allocations', [
+            'invoice_id' => $this->invoice1->id,
+            'amount' => 1200.00,
+        ]);
+
+        $createdPaymentId = Payment::query()
+            ->where('customer_id', $this->customer->id)
+            ->where('amount', 1200.00)
+            ->value('id');
+
+        $this->assertDatabaseHas('payments', [
+            'id' => $createdPaymentId,
+            'allocated_amount' => 1200.00,
+        ]);
+
+        $this->assertDatabaseHas('payment_discounts', [
+            'payment_id' => $createdPaymentId,
+            'invoice_id' => $this->invoice1->id,
+            'discount_amount' => 50.00,
+            'discount_type' => 'write_off',
+        ]);
+
+        $this->assertDatabaseMissing('payment_discounts', [
+            'payment_id' => $createdPaymentId,
+            'invoice_id' => $this->invoice1->id,
+            'discount_amount' => 300.00,
+            'discount_type' => 'write_off',
+        ]);
+
+        $this->invoice1->refresh();
+
+        $this->assertSame('paid', $this->invoice1->status);
+        $this->assertSame(1200.00, (float) $this->invoice1->paid_amount);
+        $this->assertSame(300.00, (float) PaymentDiscount::where('invoice_id', $this->invoice1->id)->sum('discount_amount'));
+    }
+
+    /** @test */
     public function it_detects_excess_payment_using_store_scoped_actual_remaining_after_discounts()
     {
         PaymentDiscount::factory()->create([
