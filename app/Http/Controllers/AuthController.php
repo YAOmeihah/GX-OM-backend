@@ -209,7 +209,6 @@ class AuthController extends ApiController
      * @bodyParam username string required 登录用户名，最大255字符，必须唯一 Example: zhangsan
      * @bodyParam email string required 邮箱地址，必须唯一 Example: zhangsan@example.com
      * @bodyParam password string required 密码，最少6位 Example: password123
-     * @bodyParam password_confirmation string required 确认密码，必须与password一致 Example: password123
      *
      * @response 200 scenario="注册成功" {
      *   "success": true,
@@ -221,8 +220,7 @@ class AuthController extends ApiController
      *       "email": "zhangsan@example.com",
      *       "roles": ["store_staff"],
      *       "stores": []
-     *     },
-     *     "token": "2|abcdefghijklmnopqrstuvwxyz123456"
+     *     }
      *   },
      *   "message": "注册成功"
      * }
@@ -247,7 +245,7 @@ class AuthController extends ApiController
             'name' => 'required|string|max:255',
             'username' => 'required|string|max:255|unique:users,username',
             'email' => 'required|string|email|max:255|unique:users,email',
-            'password' => 'required|string|min:6|confirmed',
+            'password' => 'required|string|min:6',
         ]);
 
         // 创建用户
@@ -263,9 +261,6 @@ class AuthController extends ApiController
         if ($staffRole) {
             $user->roles()->attach($staffRole->id);
         }
-
-        // 创建令牌
-        $token = $user->createToken('api-token')->plainTextToken;
 
         // 加载用户关联数据
         $user->load(['roles', 'stores']);
@@ -286,7 +281,6 @@ class AuthController extends ApiController
                     ];
                 }),
             ],
-            'token' => $token,
         ], '注册成功');
     }
 

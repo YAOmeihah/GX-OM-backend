@@ -28,7 +28,7 @@ use Illuminate\Support\Facades\Route;
 
 // 认证相关路由
 Route::post('/login', [AuthController::class, 'login']);
-Route::post('/register', [AuthController::class, 'register']);
+Route::middleware(['auth:sanctum', 'role:admin'])->post('/register', [AuthController::class, 'register']);
 Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logout']);
 Route::middleware('auth:sanctum')->get('/user', [AuthController::class, 'user']);
 Route::middleware('auth:sanctum')->put('/user/password', [AuthController::class, 'changePassword']);
@@ -133,13 +133,6 @@ Route::middleware('auth:sanctum')->group(function () {
             return response()->json(['valid' => true]);
         });
 
-        // 附件管理
-        Route::prefix('attachments')->group(function () {
-            Route::post('/presigned-url', [\App\Http\Controllers\AttachmentController::class, 'generatePresignedUrl']);
-            Route::post('/', [\App\Http\Controllers\AttachmentController::class, 'confirmUpload']);
-            Route::get('/', [\App\Http\Controllers\AttachmentController::class, 'index']);
-            Route::delete('/{id}', [\App\Http\Controllers\AttachmentController::class, 'destroy']);
-        });
 
         // 以下接口仅管理员可访问
         Route::middleware('role:admin')->group(function () {
