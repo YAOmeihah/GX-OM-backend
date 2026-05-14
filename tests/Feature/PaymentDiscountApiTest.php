@@ -2,42 +2,19 @@
 
 namespace Tests\Feature;
 
+use App\Models\AuditLog;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentDiscount;
 use App\Models\Store;
 use App\Models\User;
-use App\Services\AuditLogService;
 use App\Services\AutoAllocationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 use Tests\Traits\CreatesTestUsers;
-
-class InsertsInvoiceDiscountAfterDeleteAuditService extends AuditLogService
-{
-    public function __construct(private Payment $payment, private Invoice $invoice, private User $approvedBy) {}
-
-    public function logDelete(\Illuminate\Database\Eloquent\Model $model, ?string $description = null): \App\Models\AuditLog
-    {
-        PaymentDiscount::factory()->create([
-            'payment_id' => $this->payment->id,
-            'invoice_id' => $this->invoice->id,
-            'discount_amount' => 35.00,
-            'discount_type' => 'discount',
-            'approved_by' => $this->approvedBy->id,
-        ]);
-
-        return \App\Models\AuditLog::factory()->create([
-            'user_id' => $this->approvedBy->id,
-            'action' => \App\Models\AuditLog::ACTION_DELETE,
-            'auditable_type' => Invoice::class,
-            'auditable_id' => $this->invoice->id,
-            'business_store_id' => $this->invoice->store_id,
-        ]);
-    }
-}
 
 class PaymentDiscountApiTest extends TestCase
 {
@@ -999,10 +976,36 @@ class PaymentDiscountApiTest extends TestCase
     /** @test */
     public function invoice_destroy_rechecks_financial_activity_inside_transaction()
     {
-        $this->app->instance(
-            AuditLogService::class,
-            new InsertsInvoiceDiscountAfterDeleteAuditService($this->payment, $this->invoice2, $this->storeOwner)
-        );
+        $invoiceReads = 0;
+        $insertedDuringLockedRead = false;
+
+        DB::listen(function ($query) use (&$invoiceReads, &$insertedDuringLockedRead) {
+            $sql = strtolower($query->sql);
+            $hasInvoiceIdBinding = collect($query->bindings)
+                ->contains(fn ($binding) => (string) $binding === (string) $this->invoice2->id);
+            $isInvoiceRead = str_starts_with($sql, 'select')
+                && (str_contains($sql, 'from "invoices"') || str_contains($sql, 'from `invoices`'))
+                && $hasInvoiceIdBinding;
+
+            if (! $isInvoiceRead) {
+                return;
+            }
+
+            $invoiceReads++;
+
+            if ($invoiceReads !== 2) {
+                return;
+            }
+
+            PaymentDiscount::factory()->create([
+                'payment_id' => $this->payment->id,
+                'invoice_id' => $this->invoice2->id,
+                'discount_amount' => 35.00,
+                'discount_type' => 'discount',
+                'approved_by' => $this->storeOwner->id,
+            ]);
+            $insertedDuringLockedRead = true;
+        });
 
         Sanctum::actingAs($this->storeOwner);
 
@@ -1014,10 +1017,11 @@ class PaymentDiscountApiTest extends TestCase
             'customer_id' => $this->customer->id,
             'amount' => 835.00,
         ]);
-        $this->assertDatabaseHas('payment_discounts', [
-            'payment_id' => $this->payment->id,
-            'invoice_id' => $this->invoice2->id,
-            'discount_amount' => 35.00,
+        $this->assertTrue($insertedDuringLockedRead);
+        $this->assertDatabaseMissing('audit_logs', [
+            'action' => AuditLog::ACTION_DELETE,
+            'auditable_type' => Invoice::class,
+            'auditable_id' => $this->invoice2->id,
         ]);
     }
 }

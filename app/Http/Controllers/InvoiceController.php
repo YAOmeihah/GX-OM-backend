@@ -726,13 +726,6 @@ class InvoiceController extends ApiController
             return $this->errorResponse('该账单已有财务活动，无法删除', 422);
         }
 
-        // 在删除前手动记录审计日志（因为删除 items 后就无法获取明细了）
-        try {
-            app(\App\Services\AuditLogService::class)->logDelete($invoice);
-        } catch (\Exception $e) {
-            \Log::error('手动记录删除审计日志失败: '.$e->getMessage());
-        }
-
         try {
             // 使用事务确保数据一致性
             DB::transaction(function () use (&$invoice, $id) {
@@ -743,6 +736,13 @@ class InvoiceController extends ApiController
                     throw ValidationException::withMessages([
                         'invoice' => ['该账单已有财务活动，无法删除'],
                     ]);
+                }
+
+                // 在删除前手动记录审计日志（因为删除 items 后就无法获取明细了）
+                try {
+                    app(\App\Services\AuditLogService::class)->logDelete($invoice);
+                } catch (\Exception $e) {
+                    \Log::error('手动记录删除审计日志失败: '.$e->getMessage());
                 }
 
                 // 删除关联的附件（会触发 Attachment 模型的 deleting 事件清理存储文件）
