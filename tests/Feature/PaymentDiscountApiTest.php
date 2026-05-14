@@ -762,4 +762,110 @@ class PaymentDiscountApiTest extends TestCase
                 ],
             ]);
     }
+
+    /** @test */
+    public function invoice_with_discounts_rejects_destructive_updates_and_keeps_existing_data()
+    {
+        $this->invoice2->items()->create([
+            'item_name' => '原始项目',
+            'quantity' => 1,
+            'unit_price' => 835.00,
+            'subtotal' => 835.00,
+            'sort_order' => 0,
+        ]);
+        $originalLineUid = $this->invoice2->items()->first()->line_uid;
+        $otherCustomer = Customer::factory()->create(['store_id' => $this->store->id]);
+
+        PaymentDiscount::factory()->create([
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 35.00,
+            'discount_type' => 'discount',
+            'approved_by' => $this->storeOwner->id,
+        ]);
+
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->putJson("/api/invoices/{$this->invoice2->id}", [
+            'amount' => 900.00,
+            'customer_id' => $otherCustomer->id,
+            'items' => [
+                [
+                    'item_name' => '新项目',
+                    'quantity' => 2,
+                    'unit_price' => 450.00,
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(422);
+
+        $this->assertDatabaseHas('invoices', [
+            'id' => $this->invoice2->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 835.00,
+        ]);
+        $this->assertDatabaseHas('invoice_items', [
+            'invoice_id' => $this->invoice2->id,
+            'line_uid' => $originalLineUid,
+            'item_name' => '原始项目',
+        ]);
+        $this->assertDatabaseMissing('invoice_items', [
+            'invoice_id' => $this->invoice2->id,
+            'item_name' => '新项目',
+        ]);
+    }
+
+    /** @test */
+    public function invoice_with_discounts_allows_description_only_updates()
+    {
+        PaymentDiscount::factory()->create([
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 35.00,
+            'discount_type' => 'discount',
+            'approved_by' => $this->storeOwner->id,
+        ]);
+
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->putJson("/api/invoices/{$this->invoice2->id}", [
+            'description' => '折扣后备注更新',
+        ]);
+
+        $response->assertStatus(200);
+
+        $this->assertDatabaseHas('invoices', [
+            'id' => $this->invoice2->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 835.00,
+            'description' => '折扣后备注更新',
+        ]);
+    }
+
+    /** @test */
+    public function invoice_with_discounts_cannot_be_deleted()
+    {
+        $discount = PaymentDiscount::factory()->create([
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 35.00,
+            'discount_type' => 'discount',
+            'approved_by' => $this->storeOwner->id,
+        ]);
+
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->deleteJson("/api/invoices/{$this->invoice2->id}");
+
+        $response->assertStatus(422);
+
+        $this->assertDatabaseHas('invoices', [
+            'id' => $this->invoice2->id,
+        ]);
+        $this->assertDatabaseHas('payment_discounts', [
+            'id' => $discount->id,
+            'invoice_id' => $this->invoice2->id,
+        ]);
+    }
 }

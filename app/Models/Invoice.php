@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Helpers\MoneyHelper;
 use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -221,6 +222,16 @@ class Invoice extends Model
     {
         // 直接调用统一的 updateStatus 方法
         $this->updateStatus();
+    }
+
+    /**
+     * 检查账单是否已有付款、分配或优惠等财务活动
+     */
+    public function hasFinancialActivity(): bool
+    {
+        return MoneyHelper::isPositive((float) $this->paid_amount)
+            || $this->paymentAllocations()->exists()
+            || $this->discounts()->exists();
     }
 
     /**

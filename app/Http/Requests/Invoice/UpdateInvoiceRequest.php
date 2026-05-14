@@ -35,8 +35,8 @@ class UpdateInvoiceRequest extends FormRequest
     {
         $invoice = $this->getInvoice();
 
-        // 如果账单已有付款，则只能更新描述
-        if ($invoice && $invoice->paid_amount > 0) {
+        // 如果账单已有财务活动，则只能更新描述
+        if ($invoice && $invoice->hasFinancialActivity()) {
             return [
                 'description' => 'nullable|string',
             ];
@@ -102,9 +102,18 @@ class UpdateInvoiceRequest extends FormRequest
     public function withValidator($validator)
     {
         $validator->after(function ($validator) {
+            $invoice = $this->getInvoice();
+
+            if ($invoice && $invoice->hasFinancialActivity()) {
+                foreach (['customer_id', 'amount', 'due_date', 'items'] as $field) {
+                    if ($this->has($field)) {
+                        $validator->errors()->add($field, '该账单已有财务活动，只能更新描述');
+                    }
+                }
+            }
+
             $customerId = $this->input('customer_id');
             if ($customerId) {
-                $invoice = $this->getInvoice();
                 $customer = \App\Models\Customer::find($customerId);
                 if ($customer && $invoice && $customer->store_id != $invoice->store_id) {
                     $validator->errors()->add('customer_id', '该客户不属于此账单的门店');
