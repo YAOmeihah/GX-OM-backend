@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * @group 账单管理
@@ -522,6 +523,12 @@ class InvoiceController extends ApiController
         // 权限检查和验证已在 UpdateInvoiceRequest 中完成
         $validated = $request->validated();
 
+        $destructiveFields = ['customer_id', 'amount', 'due_date', 'items'];
+        $hasDestructiveChanges = ! empty(array_intersect(array_keys($validated), $destructiveFields));
+        $shouldSyncStats = ! empty(array_intersect(array_keys($validated), ['customer_id', 'amount', 'items']));
+        $originalCustomerId = $invoice->customer_id;
+        $originalStoreId = $invoice->store_id;
+
         // 获取更新前的原始数据用于审计（含明细快照，带 line_uid）
         $invoice->loadMissing('items');
         $originalData = array_merge($invoice->toArray(), [
@@ -539,11 +546,19 @@ class InvoiceController extends ApiController
         DB::beginTransaction();
 
         try {
+            $invoice = Invoice::whereKey($id)->lockForUpdate()->firstOrFail();
+            $invoice->loadMissing(['items', 'discounts']);
+
+            if ($hasDestructiveChanges && $invoice->hasFinancialActivity()) {
+                throw ValidationException::withMessages([
+                    'invoice' => ['该账单已有财务活动，只能更新描述'],
+                ]);
+            }
+
             // 使用 withoutAuditingDo 避免更新过程中的中间日志
             Invoice::withoutAuditingDo(function () use ($invoice, $validated) {
                 // 预先计算总金额和准备明细
                 $totalAmount = 0;
-                $itemsToCreate = [];
                 $shouldUpdateItems = false;
 
                 if (isset($validated['items']) && $invoice->paid_amount == 0) {
@@ -629,6 +644,14 @@ class InvoiceController extends ApiController
                 $invoice->setAttribute('created_by', $invoice->createdBy);
             }
 
+            if ($shouldSyncStats) {
+                $statsService = app(CustomerStatsService::class);
+                $statsService->syncCustomerStoreStats($originalCustomerId, $originalStoreId);
+                if ($originalCustomerId !== $invoice->customer_id || $originalStoreId !== $invoice->store_id) {
+                    $statsService->syncCustomerStoreStats($invoice->customer_id, $invoice->store_id);
+                }
+            }
+
             // 手动记录一条完整的更新审计日志
             try {
                 $newData = array_merge($invoice->toArray(), [
@@ -648,6 +671,10 @@ class InvoiceController extends ApiController
             }
 
             return $this->successResponse($invoice, '账单更新成功');
+        } catch (ValidationException $e) {
+            DB::rollBack();
+
+            return $this->errorResponse($e->validator->errors()->first(), 422);
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -694,34 +721,47 @@ class InvoiceController extends ApiController
         // 使用 Policy 进行权限检查
         $this->authorize('delete', $invoice);
 
-        // 如果账单已经有付款，则不能删除
-        if ($invoice->paid_amount > 0) {
-            return $this->errorResponse('该账单已有付款记录，无法删除', 422);
+        // 如果账单已经有财务活动，则不能删除
+        if ($invoice->hasFinancialActivity()) {
+            return $this->errorResponse('该账单已有财务活动，无法删除', 422);
         }
 
-        // 在删除前手动记录审计日志（因为删除 items 后就无法获取明细了）
         try {
-            app(\App\Services\AuditLogService::class)->logDelete($invoice);
-        } catch (\Exception $e) {
-            \Log::error('手动记录删除审计日志失败: '.$e->getMessage());
-        }
+            // 使用事务确保数据一致性
+            DB::transaction(function () use (&$invoice, $id) {
+                $invoice = Invoice::with('items')->whereKey($id)->lockForUpdate()->firstOrFail();
+                $invoice->loadMissing('discounts');
 
-        // 使用事务确保数据一致性
-        DB::transaction(function () use ($invoice) {
-            // 删除关联的附件（会触发 Attachment 模型的 deleting 事件清理存储文件）
-            $invoice->attachments()->each(function ($attachment) {
-                $attachment->delete();
+                if ($invoice->hasFinancialActivity()) {
+                    throw ValidationException::withMessages([
+                        'invoice' => ['该账单已有财务活动，无法删除'],
+                    ]);
+                }
+
+                // 在删除前手动记录审计日志（因为删除 items 后就无法获取明细了）
+                try {
+                    app(\App\Services\AuditLogService::class)->logDelete($invoice);
+                } catch (\Exception $e) {
+                    \Log::error('手动记录删除审计日志失败: '.$e->getMessage());
+                }
+
+                // 删除关联的附件（会触发 Attachment 模型的 deleting 事件清理存储文件）
+                $invoice->attachments()->each(function ($attachment) {
+                    $attachment->delete();
+                });
+
+                // 删除关联的明细项目
+                $invoice->items()->delete();
+
+                // 删除关联的优惠减免记录
+                $invoice->discounts()->delete();
+
+                // 删除账单本身，使用 deleteQuietly 避免触发 Auditable 重复记录审计日志
+                $invoice->deleteQuietly();
             });
-
-            // 删除关联的明细项目
-            $invoice->items()->delete();
-
-            // 删除关联的优惠减免记录
-            $invoice->discounts()->delete();
-
-            // 删除账单本身，使用 deleteQuietly 避免触发 Auditable 重复记录审计日志
-            $invoice->deleteQuietly();
-        });
+        } catch (ValidationException $e) {
+            return $this->errorResponse($e->validator->errors()->first(), 422);
+        }
 
         // 事务提交后手动同步客户欠款统计
         app(CustomerStatsService::class)->syncCustomerStoreStats(

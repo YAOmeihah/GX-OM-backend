@@ -247,7 +247,7 @@ class PublicInvoiceController extends ApiController
             // 动态模式：实时查询未付和部分支付的账单
             $invoiceIds = Invoice::where('customer_id', $shareToken->customer_id)
                 ->where('store_id', $shareToken->store_id)
-                ->whereIn('status', ['unpaid', 'partially_paid'])
+                ->whereIn('status', ['unpaid', 'partially_paid', 'overdue'])
                 ->orderBy('created_at', 'desc')
                 ->pluck('id')
                 ->toArray();

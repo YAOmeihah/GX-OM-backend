@@ -46,6 +46,7 @@ class AutoAllocationService
         if ($unpaidInvoices->isEmpty()) {
             return [
                 'suggestions' => [],
+                'allocations' => [],
                 'total_debt' => 0,
                 'excess_amount' => $payment->unallocated_amount,
                 'can_fully_allocate' => false,
@@ -53,11 +54,12 @@ class AutoAllocationService
         }
 
         $suggestions = $this->calculateAllocationSuggestion($payment, $unpaidInvoices);
-        $totalDebt = $unpaidInvoices->sum('remaining_amount');
+        $totalDebt = $unpaidInvoices->sum('actual_remaining_amount');
         $excessAmount = max(0, $payment->unallocated_amount - $totalDebt);
 
         return [
             'suggestions' => $suggestions,
+            'allocations' => $suggestions,
             'total_debt' => $totalDebt,
             'excess_amount' => $excessAmount,
             'can_fully_allocate' => $payment->unallocated_amount <= $totalDebt,
@@ -71,11 +73,17 @@ class AutoAllocationService
      */
     public function detectExcessPayment(Payment $payment): array
     {
-        $customer = $payment->customer;
-        $totalDebt = $customer->total_debt;
+        $totalDebt = Invoice::with('discounts')
+            ->where('customer_id', $payment->customer_id)
+            ->where('store_id', $payment->store_id)
+            ->whereRaw('amount > paid_amount')
+            ->get()
+            ->sum('actual_remaining_amount');
 
-        $isExcess = $payment->amount > $totalDebt;
-        $excessAmount = $isExcess ? $payment->amount - $totalDebt : 0;
+        $isExcess = \App\Helpers\MoneyHelper::isGreaterThan($payment->amount, $totalDebt);
+        $excessAmount = $isExcess
+            ? \App\Helpers\MoneyHelper::toFloat(\App\Helpers\MoneyHelper::subtract($payment->amount, $totalDebt))
+            : 0;
 
         return [
             'is_excess' => $isExcess,
@@ -91,7 +99,8 @@ class AutoAllocationService
      */
     private function getUnpaidInvoices(Payment $payment, PaymentAllocationStrategy $strategy): Collection
     {
-        $query = Invoice::where('customer_id', $payment->customer_id)
+        $query = Invoice::with('discounts')
+            ->where('customer_id', $payment->customer_id)
             ->where('store_id', $payment->store_id)
             ->whereRaw('amount > paid_amount'); // 有未付余额的账单
 
@@ -108,15 +117,27 @@ class AutoAllocationService
         }
 
         // 应用排序
-        [$orderField, $orderDirection] = $strategy->getOrderBy();
-        $query->orderBy($orderField, $orderDirection);
+        if ($strategy === PaymentAllocationStrategy::OVERDUE_FIRST) {
+            $query->orderByRaw(
+                "CASE WHEN status = 'overdue' OR due_date < ? THEN 0 ELSE 1 END",
+                [now()->toDateString()]
+            )
+                ->orderBy('due_date')
+                ->orderBy('created_at');
+        } else {
+            [$orderField, $orderDirection] = $strategy->getOrderBy();
+            $query->orderBy($orderField, $orderDirection);
+        }
 
         // 添加计算字段
-        return $query->get()->map(function ($invoice) {
-            $invoice->remaining_amount = $invoice->amount - $invoice->paid_amount;
+        return $query->get()
+            ->map(function ($invoice) {
+                $invoice->remaining_amount = $invoice->actual_remaining_amount;
 
-            return $invoice;
-        });
+                return $invoice;
+            })
+            ->filter(fn ($invoice) => \App\Helpers\MoneyHelper::isPositive($invoice->actual_remaining_amount))
+            ->values();
     }
 
     /**
@@ -134,7 +155,7 @@ class AutoAllocationService
                     break;
                 }
 
-                $invoiceRemaining = $invoice->remaining_amount;
+                $invoiceRemaining = $invoice->actual_remaining_amount;
                 $allocateAmount = \App\Helpers\MoneyHelper::toFloat(
                     \App\Helpers\MoneyHelper::min($remainingAmount, $invoiceRemaining)
                 );
@@ -176,7 +197,7 @@ class AutoAllocationService
                 break;
             }
 
-            $invoiceRemaining = $invoice->remaining_amount;
+            $invoiceRemaining = $invoice->actual_remaining_amount;
             $allocateAmount = \App\Helpers\MoneyHelper::toFloat(
                 \App\Helpers\MoneyHelper::min($remainingAmount, $invoiceRemaining)
             );

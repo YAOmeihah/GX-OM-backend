@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Helpers\MoneyHelper;
 use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -196,7 +197,12 @@ class Invoice extends Model
      */
     public function getActualRemainingAmountAttribute(): float
     {
-        return $this->amount - $this->paid_amount - $this->total_discount_amount;
+        $remainingAmount = \App\Helpers\MoneyHelper::subtract($this->amount, $this->paid_amount);
+        $actualRemaining = \App\Helpers\MoneyHelper::subtract($remainingAmount, $this->total_discount_amount);
+
+        return \App\Helpers\MoneyHelper::toFloat(
+            \App\Helpers\MoneyHelper::max($actualRemaining, 0)
+        );
     }
 
     /**
@@ -216,6 +222,16 @@ class Invoice extends Model
     {
         // 直接调用统一的 updateStatus 方法
         $this->updateStatus();
+    }
+
+    /**
+     * 检查账单是否已有付款、分配或优惠等财务活动
+     */
+    public function hasFinancialActivity(): bool
+    {
+        return MoneyHelper::isPositive((float) $this->paid_amount)
+            || $this->paymentAllocations()->exists()
+            || $this->discounts()->exists();
     }
 
     /**

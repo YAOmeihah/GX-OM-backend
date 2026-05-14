@@ -106,7 +106,7 @@ class FinancialScenarioTest extends TestCase
                     'invoice_id' => $this->invoice2->id,
                     'amount' => 35.00,
                     'type' => 'discount',
-                    'reason' => '优惠抹零',
+                    'reason' => '优惠抹零确认',
                 ],
             ],
         ];
@@ -131,7 +131,7 @@ class FinancialScenarioTest extends TestCase
         $this->assertEquals(35.00, $discount->discount_amount);
         $this->assertEquals('discount', $discount->discount_type);
         $this->assertEquals($this->invoice2->id, $discount->invoice_id);
-        $this->assertEquals('优惠抹零', $discount->reason);
+        $this->assertEquals('优惠抹零确认', $discount->reason);
 
         // 第五步：验证账单状态更新
         $this->invoice1->refresh();
@@ -298,6 +298,66 @@ class FinancialScenarioTest extends TestCase
     }
 
     /** @test */
+    public function it_calculates_bill_summary_using_actual_remaining_after_discounts()
+    {
+        $payment = Payment::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 100.00,
+            'received_by' => $this->storeOwner->id,
+        ]);
+
+        PaymentDiscount::factory()->create([
+            'payment_id' => $payment->id,
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 100.00,
+            'discount_type' => 'discount',
+            'approved_by' => $this->storeOwner->id,
+        ]);
+
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->postJson("/api/customers/{$this->customer->id}/bill-summary", [
+            'invoice_ids' => [$this->invoice1->id, $this->invoice2->id],
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.summary.total_remaining', '2235.00')
+            ->assertJsonPath('data.invoices.0.remaining_amount', '1500.00')
+            ->assertJsonPath('data.invoices.1.remaining_amount', '735.00');
+    }
+
+    /** @test */
+    public function it_calculates_daily_unpaid_summary_using_actual_remaining_after_discounts()
+    {
+        $payment = Payment::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 100.00,
+            'received_by' => $this->storeOwner->id,
+        ]);
+
+        PaymentDiscount::factory()->create([
+            'payment_id' => $payment->id,
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 100.00,
+            'discount_type' => 'discount',
+            'approved_by' => $this->storeOwner->id,
+        ]);
+
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->getJson(
+            "/api/customers/{$this->customer->id}/daily-unpaid-summary?store_id={$this->store->id}&date=".now()->toDateString()
+        );
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.summary.total_remaining', '2235.00')
+            ->assertJsonPath('data.invoices.0.remaining_amount', '1500.00')
+            ->assertJsonPath('data.invoices.1.remaining_amount', '735.00');
+    }
+
+    /** @test */
     public function it_validates_permissions_in_the_scenario()
     {
         $payment = Payment::factory()->create([
@@ -329,6 +389,28 @@ class FinancialScenarioTest extends TestCase
         } else {
             $response->assertStatus(403);
         }
+    }
+
+    /** @test */
+    public function it_rejects_clear_debt_write_off_when_store_staff_cannot_approve_generated_discount()
+    {
+        Sanctum::actingAs($this->storeStaff);
+
+        $response = $this->postJson("/api/customers/{$this->customer->id}/clear-debt", [
+            'store_id' => $this->store->id,
+            'payment_amount' => 2300.00,
+            'payment_method' => 'cash',
+            'apply_discount' => true,
+        ]);
+
+        $response->assertStatus(403)
+            ->assertJsonPath('success', false);
+
+        $this->assertDatabaseMissing('payment_discounts', [
+            'invoice_id' => $this->invoice2->id,
+            'discount_amount' => 35.00,
+            'discount_type' => 'write_off',
+        ]);
     }
 
     /** @test */

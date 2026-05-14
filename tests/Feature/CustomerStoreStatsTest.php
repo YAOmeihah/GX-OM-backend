@@ -9,11 +9,12 @@ use App\Models\User;
 use App\Services\CustomerStatsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
+use Tests\Traits\CreatesTestUsers;
 
 class CustomerStoreStatsTest extends TestCase
 {
     // 使用事务包裹以避免污染真实测试数据库
-    use RefreshDatabase;
+    use CreatesTestUsers, RefreshDatabase;
 
     private User $user;
 
@@ -26,6 +27,8 @@ class CustomerStoreStatsTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        $this->ensureRolesExist();
 
         $this->user = User::factory()->create();
         $this->store = Store::factory()->create();
@@ -114,5 +117,51 @@ class CustomerStoreStatsTest extends TestCase
         // 验证前端能拿到正确的映射属性
         $responseData = $response->json('data.data.0');
         $this->assertEquals(1234.56, $responseData['total_debt']);
+    }
+
+    public function test_invoice_update_syncs_old_and_new_customer_store_stats()
+    {
+        $storeOwner = $this->createStoreOwner([], $this->store);
+        $newCustomer = Customer::factory()->create(['store_id' => $this->store->id]);
+        $invoice = Invoice::factory()->create([
+            'customer_id' => $this->customer->id,
+            'store_id' => $this->store->id,
+            'amount' => 500.00,
+            'paid_amount' => 0.00,
+            'status' => 'unpaid',
+            'created_by' => $storeOwner->id,
+        ]);
+
+        $this->statsService->syncCustomerStoreStats($this->customer->id, $this->store->id);
+        $this->statsService->syncCustomerStoreStats($newCustomer->id, $this->store->id);
+
+        $this->actingAs($storeOwner)
+            ->putJson("/api/invoices/{$invoice->id}", [
+                'customer_id' => $newCustomer->id,
+                'items' => [
+                    [
+                        'item_name' => '迁移后的项目',
+                        'quantity' => 2,
+                        'unit_price' => 300.00,
+                    ],
+                ],
+            ])
+            ->assertStatus(200);
+
+        $this->assertDatabaseHas('customer_store_stats', [
+            'customer_id' => $this->customer->id,
+            'store_id' => $this->store->id,
+            'total_debt' => 0.00,
+        ]);
+        $this->assertDatabaseHas('customer_store_stats', [
+            'customer_id' => $newCustomer->id,
+            'store_id' => $this->store->id,
+            'total_debt' => 600.00,
+        ]);
+        $this->assertDatabaseHas('invoices', [
+            'id' => $invoice->id,
+            'customer_id' => $newCustomer->id,
+            'amount' => 600.00,
+        ]);
     }
 }

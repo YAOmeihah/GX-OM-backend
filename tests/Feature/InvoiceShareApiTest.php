@@ -244,6 +244,37 @@ class InvoiceShareApiTest extends TestCase
     }
 
     /** @test */
+    public function dynamic_share_includes_overdue_invoices()
+    {
+        $overdueInvoice = Invoice::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 700.00,
+            'paid_amount' => 0,
+            'status' => 'overdue',
+            'created_by' => $this->storeOwner->id,
+        ]);
+
+        $token = InvoiceShareToken::create([
+            'token' => InvoiceShareToken::generateToken(),
+            'type' => InvoiceShareToken::TYPE_DYNAMIC,
+            'invoice_ids' => [],
+            'customer_id' => $this->customer->id,
+            'store_id' => $this->store->id,
+            'created_by' => $this->storeOwner->id,
+            'expires_at' => now()->addMonths(3),
+        ]);
+
+        $response = $this->getJson("/api/public/bills/{$token->token}");
+
+        $response->assertStatus(200);
+
+        $invoiceIds = collect($response->json('data.invoices'))->pluck('id');
+        $this->assertTrue($invoiceIds->contains($overdueInvoice->id));
+        $this->assertEquals(3, $response->json('data.summary.total_count'));
+    }
+
+    /** @test */
     public function it_rejects_expired_token()
     {
         // 创建已过期的令牌
