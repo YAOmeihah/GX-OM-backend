@@ -277,7 +277,13 @@ class PaymentController extends ApiController
                     throw new \Exception('分配金额与优惠减免总额超过了还款金额和差额');
                 }
 
-                $discountService->validateDiscountRequest($payment, $validated['discount_data'], $user->id, 'create_payment');
+                $discountService->validateDiscountRequest(
+                    $payment,
+                    $validated['discount_data'],
+                    $user->id,
+                    'create_payment',
+                    $validated['allocations'] ?? []
+                );
 
                 // 先处理前端传来的手动分配（如果有）
                 if (! empty($validated['allocations'])) {

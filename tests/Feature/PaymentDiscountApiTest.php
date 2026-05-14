@@ -136,6 +136,38 @@ class PaymentDiscountApiTest extends TestCase
     }
 
     /** @test */
+    public function it_rejects_apply_discount_when_auto_allocation_and_discount_exceed_invoice_remaining()
+    {
+        $this->payment->update(['amount' => 2300.00]);
+
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->postJson("/api/payments/{$this->payment->id}/apply-discount", [
+            'discount_data' => [
+                [
+                    'invoice_id' => $this->invoice1->id,
+                    'amount' => 35.00,
+                    'type' => 'discount',
+                    'reason' => '自动分配后同账单超额减免',
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $this->assertDatabaseMissing('payment_allocations', [
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice1->id,
+        ]);
+        $this->assertDatabaseMissing('payment_discounts', [
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice1->id,
+            'discount_amount' => 35.00,
+        ]);
+    }
+
+    /** @test */
     public function it_creates_payment_with_discount_via_api()
     {
         Sanctum::actingAs($this->storeOwner);
@@ -211,6 +243,50 @@ class PaymentDiscountApiTest extends TestCase
         $this->assertDatabaseMissing('payment_discounts', [
             'invoice_id' => $this->invoice2->id,
             'discount_amount' => 36.00,
+        ]);
+    }
+
+    /** @test */
+    public function it_rejects_creating_payment_when_invoice_allocation_and_discount_exceed_actual_remaining()
+    {
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->postJson('/api/payments', [
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 1500.00,
+            'payment_method' => 'cash',
+            'apply_discount' => true,
+            'allocations' => [
+                [
+                    'invoice_id' => $this->invoice1->id,
+                    'amount' => 1500.00,
+                ],
+            ],
+            'discount_data' => [
+                [
+                    'invoice_id' => $this->invoice1->id,
+                    'amount' => 35.00,
+                    'type' => 'discount',
+                    'reason' => '同账单分配后超额减免',
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $this->assertDatabaseMissing('payments', [
+            'customer_id' => $this->customer->id,
+            'amount' => 1500.00,
+        ]);
+        $this->assertDatabaseMissing('payment_allocations', [
+            'invoice_id' => $this->invoice1->id,
+            'amount' => 1500.00,
+        ]);
+        $this->assertDatabaseMissing('payment_discounts', [
+            'invoice_id' => $this->invoice1->id,
+            'discount_amount' => 35.00,
         ]);
     }
 
@@ -371,6 +447,46 @@ class PaymentDiscountApiTest extends TestCase
             'invoice_id' => $this->invoice2->id,
             'discount_amount' => 10.00,
         ]);
+    }
+
+    /** @test */
+    public function it_revalidates_daily_discount_limit_inside_process_discount_transaction()
+    {
+        config(['payment.daily_discount_limit' => 50]);
+
+        PaymentDiscount::factory()->create([
+            'payment_id' => $this->payment->id,
+            'invoice_id' => $this->invoice1->id,
+            'discount_amount' => 45.00,
+            'discount_type' => 'discount',
+            'approved_by' => $this->storeOwner->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->payment->update(['amount' => 2280.00]);
+
+        $service = app(\App\Services\PaymentDiscountService::class);
+
+        $this->expectException(\App\Services\DiscountValidationException::class);
+        $this->expectExceptionMessage('今日优惠减免总额已超过门店每日限额');
+
+        try {
+            $service->processDiscountScenario($this->payment, [
+                [
+                    'invoice_id' => $this->invoice2->id,
+                    'amount' => 10.00,
+                    'type' => 'discount',
+                    'reason' => '事务内重新校验限额',
+                ],
+            ], $this->storeOwner->id);
+        } finally {
+            $this->assertDatabaseMissing('payment_discounts', [
+                'payment_id' => $this->payment->id,
+                'invoice_id' => $this->invoice2->id,
+                'discount_amount' => 10.00,
+            ]);
+        }
     }
 
     /** @test */

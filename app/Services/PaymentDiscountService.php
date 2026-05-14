@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentDiscount;
+use App\Models\Store;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -82,6 +83,31 @@ class PaymentDiscountService
 
             // 验证折扣数据
             $this->validateDiscountData($discountData, $gapInfo);
+
+            $allocationData = [];
+            $remainingAmount = $payment->amount;
+            foreach ($gapInfo['unpaid_invoices']->sortBy('created_at') as $invoice) {
+                if (\App\Helpers\MoneyHelper::isZeroOrNegative($remainingAmount)) {
+                    break;
+                }
+
+                $allocateAmount = \App\Helpers\MoneyHelper::toFloat(
+                    \App\Helpers\MoneyHelper::min($remainingAmount, $invoice->actual_remaining_amount)
+                );
+
+                if (\App\Helpers\MoneyHelper::isPositive($allocateAmount)) {
+                    $allocationData[] = [
+                        'invoice_id' => $invoice->id,
+                        'amount' => $allocateAmount,
+                    ];
+
+                    $remainingAmount = \App\Helpers\MoneyHelper::toFloat(
+                        \App\Helpers\MoneyHelper::subtract($remainingAmount, $allocateAmount)
+                    );
+                }
+            }
+
+            $this->validateDiscountRequest($payment, $discountData, $approvedBy, 'apply_discount', $allocationData);
 
             // 先进行正常的还款分配
             $allocationResults = $this->allocatePaymentToInvoices($payment, $gapInfo['unpaid_invoices']);
@@ -234,13 +260,30 @@ class PaymentDiscountService
         Payment $payment,
         array $discountData,
         int $approvedBy,
-        string $context = 'apply_discount'
+        string $context = 'apply_discount',
+        array $allocationData = []
     ): void {
         if (empty($discountData)) {
             throw new DiscountValidationException('优惠减免数据不能为空');
         }
 
         $totalRequestAmount = 0.0;
+        $settlementByInvoice = [];
+        $invoicesById = [];
+
+        foreach ($allocationData as $data) {
+            $invoiceId = $data['invoice_id'] ?? null;
+            $amount = (float) ($data['amount'] ?? 0);
+
+            if (! $invoiceId || \App\Helpers\MoneyHelper::isZeroOrNegative($amount)) {
+                continue;
+            }
+
+            $settlementByInvoice[$invoiceId] = \App\Helpers\MoneyHelper::add(
+                $settlementByInvoice[$invoiceId] ?? 0,
+                $amount
+            );
+        }
 
         foreach ($discountData as $index => $data) {
             $label = '第'.($index + 1).'项';
@@ -253,10 +296,11 @@ class PaymentDiscountService
                 throw new DiscountValidationException("{$label}：缺少账单ID");
             }
 
-            $invoice = Invoice::with('discounts')->find($invoiceId);
+            $invoice = $invoicesById[$invoiceId] ?? Invoice::with('discounts')->find($invoiceId);
             if (! $invoice) {
                 throw new DiscountValidationException("账单 {$invoiceId} 不存在");
             }
+            $invoicesById[$invoiceId] = $invoice;
 
             if ((int) $invoice->customer_id !== (int) $payment->customer_id || (int) $invoice->store_id !== (int) $payment->store_id) {
                 throw new DiscountValidationException('账单与还款的客户或门店不匹配');
@@ -269,6 +313,11 @@ class PaymentDiscountService
             if (\App\Helpers\MoneyHelper::isGreaterThan($amount, $invoice->actual_remaining_amount)) {
                 throw new DiscountValidationException("账单 {$invoice->invoice_number} 的优惠减免金额超过了剩余未付金额");
             }
+
+            $settlementByInvoice[$invoiceId] = \App\Helpers\MoneyHelper::add(
+                $settlementByInvoice[$invoiceId] ?? 0,
+                $amount
+            );
 
             if (! config("payment.discount_types.{$type}")) {
                 throw new DiscountValidationException("{$label}：无效的折扣类型");
@@ -287,6 +336,24 @@ class PaymentDiscountService
 
             $totalRequestAmount = \App\Helpers\MoneyHelper::add($totalRequestAmount, $amount);
         }
+
+        foreach ($settlementByInvoice as $invoiceId => $settlementAmount) {
+            $invoice = $invoicesById[$invoiceId] ?? Invoice::with('discounts')->find($invoiceId);
+            if (! $invoice) {
+                throw new DiscountValidationException("账单 {$invoiceId} 不存在");
+            }
+            $invoicesById[$invoiceId] = $invoice;
+
+            if ((int) $invoice->customer_id !== (int) $payment->customer_id || (int) $invoice->store_id !== (int) $payment->store_id) {
+                throw new DiscountValidationException('账单与还款的客户或门店不匹配');
+            }
+
+            if (\App\Helpers\MoneyHelper::isGreaterThan($settlementAmount, $invoice->actual_remaining_amount)) {
+                throw new DiscountValidationException("账单 {$invoice->invoice_number} 的分配金额与优惠减免总额超过了剩余未付金额");
+            }
+        }
+
+        Store::whereKey($payment->store_id)->lockForUpdate()->firstOrFail();
 
         $todayApprovedAmount = PaymentDiscount::query()
             ->join('payments', 'payment_discounts.payment_id', '=', 'payments.id')
