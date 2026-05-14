@@ -17,6 +17,10 @@
 .env.production
 .phpactor.json
 .phpunit.result.cache
+
+# Local AI/tooling state
+/.serena
+
 Homestead.json
 Homestead.yaml
 npm-debug.log
@@ -31,3 +35,4 @@ pnpm-debug.log*
 /.zed
 .DS_Store
 Thumbs.db
+.worktree
