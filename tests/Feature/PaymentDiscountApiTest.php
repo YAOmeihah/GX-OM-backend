@@ -660,6 +660,76 @@ class PaymentDiscountApiTest extends TestCase
     }
 
     /** @test */
+    public function it_suggests_overdue_first_allocation_without_filtering_current_unpaid_invoices()
+    {
+        $this->invoice1->update([
+            'due_date' => now()->subDay()->toDateString(),
+            'status' => 'overdue',
+        ]);
+        $this->invoice2->update([
+            'due_date' => now()->addDays(10)->toDateString(),
+            'status' => 'unpaid',
+        ]);
+
+        $payment = Payment::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 2500.00,
+            'received_by' => $this->storeOwner->id,
+        ]);
+
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->getJson("/api/payments/{$payment->id}/allocation-suggestion?strategy=overdue_first&include_discount=false");
+
+        $response->assertStatus(200);
+
+        $allocations = $response->json('data.suggestion.allocations');
+
+        $this->assertCount(2, $allocations);
+        $this->assertSame($this->invoice1->id, $allocations[0]['invoice_id']);
+        $this->assertSame($this->invoice2->id, $allocations[1]['invoice_id']);
+        $this->assertEquals(1500.00, $allocations[0]['suggested_amount']);
+        $this->assertEquals(835.00, $allocations[1]['suggested_amount']);
+    }
+
+    /** @test */
+    public function it_prevents_stale_model_over_allocation_with_fresh_locked_state()
+    {
+        $payment = Payment::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 1000.00,
+            'allocated_amount' => 0,
+            'received_by' => $this->storeOwner->id,
+        ]);
+
+        $invoice = Invoice::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 1000.00,
+            'paid_amount' => 0,
+            'status' => 'unpaid',
+        ]);
+
+        $stalePayment = Payment::findOrFail($payment->id);
+        $staleInvoice = Invoice::findOrFail($invoice->id);
+
+        $payment->allocateToInvoiceWithTransaction($invoice, 700.00, $this->storeOwner->id);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('分配金额超过了账单剩余未付金额');
+
+        try {
+            $stalePayment->allocateToInvoice($staleInvoice, 700.00, $this->storeOwner->id, false);
+        } finally {
+            $this->assertDatabaseCount('payment_allocations', 1);
+            $this->assertEquals(700.00, $payment->fresh()->allocated_amount);
+            $this->assertEquals(700.00, $invoice->fresh()->paid_amount);
+        }
+    }
+
+    /** @test */
     public function it_detects_excess_payment_using_store_scoped_actual_remaining_after_discounts()
     {
         PaymentDiscount::factory()->create([

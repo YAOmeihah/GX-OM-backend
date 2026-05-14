@@ -118,10 +118,6 @@ class Payment extends Model
             return $allocation;
         };
 
-        if (! $lockForUpdate) {
-            return $allocate($this, $invoice);
-        }
-
         return DB::transaction(function () use ($invoice, $allocate) {
             $lockedPayment = self::whereKey($this->id)->lockForUpdate()->firstOrFail();
             $lockedInvoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();

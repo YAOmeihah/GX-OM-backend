@@ -117,8 +117,17 @@ class AutoAllocationService
         }
 
         // 应用排序
-        [$orderField, $orderDirection] = $strategy->getOrderBy();
-        $query->orderBy($orderField, $orderDirection);
+        if ($strategy === PaymentAllocationStrategy::OVERDUE_FIRST) {
+            $query->orderByRaw(
+                "CASE WHEN status = 'overdue' OR due_date < ? THEN 0 ELSE 1 END",
+                [now()->toDateString()]
+            )
+                ->orderBy('due_date')
+                ->orderBy('created_at');
+        } else {
+            [$orderField, $orderDirection] = $strategy->getOrderBy();
+            $query->orderBy($orderField, $orderDirection);
+        }
 
         // 添加计算字段
         return $query->get()
