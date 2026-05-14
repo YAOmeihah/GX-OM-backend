@@ -74,6 +74,13 @@ class PublicInvoiceController extends ApiController
             if (!$this->isAdmin() && !$this->belongsToStore($storeId)) {
                 return $this->errorResponse('您没有权限分享该门店的账单', 403);
             }
+
+            // 验证客户属于该门店
+            $customer = \App\Models\Customer::find($customerId);
+            if (!$customer || $customer->store_id != $storeId) {
+                return $this->errorResponse('客户不属于该门店', 422);
+            }
+            }
         } else {
             $invoiceIds = $request->input('invoice_ids');
 

@@ -514,6 +514,15 @@ class CustomerController extends ApiController
     {
         $customer = Customer::findOrFail($id);
 
+        // 验证客户所属门店在用户权限范围内
+        $user = request()->user();
+        if ($user && !$user->isAdmin()) {
+            $allowedStoreIds = $this->getUserStoreIds();
+            if (!in_array($customer->store_id, $allowedStoreIds)) {
+                return $this->errorResponse('无权限访问该客户', 403);
+            }
+        }
+
         // 获取用户有权限访问的门店ID列表
         $storeIds = $this->getUserStoreIds();
 
@@ -884,6 +893,15 @@ class CustomerController extends ApiController
     public function dailyUnpaidSummary($id, Request $request)
     {
         $customer = Customer::findOrFail($id);
+
+        // 验证客户所属门店在用户权限范围内
+        $user = $request->user();
+        if ($user && !$user->isAdmin()) {
+            $allowedStoreIds = $this->getUserStoreIds();
+            if (!in_array($customer->store_id, $allowedStoreIds)) {
+                return $this->errorResponse('无权限访问该客户', 403);
+            }
+        }
 
         // 获取用户有权限的门店
         $allowedStoreIds = $this->getUserStoreIds();

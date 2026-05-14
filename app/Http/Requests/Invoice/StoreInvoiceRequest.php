@@ -51,6 +51,15 @@ class StoreInvoiceRequest extends FormRequest
                 $validator->errors()->add('store_id', '你没有权限在此门店创建账单');
             }
 
+            // 验证：客户必须属于所选门店
+            $customerId = $this->input('customer_id');
+            if ($storeId && $customerId) {
+                $customer = \App\Models\Customer::find($customerId);
+                if ($customer && $customer->store_id != $storeId) {
+                    $validator->errors()->add('customer_id', '该客户不属于所选门店');
+                }
+            }
+
             // 验证：必须提供 amount 或 items 其中之一
             if (!$this->filled('amount') && !$this->filled('items')) {
                 $validator->errors()->add('amount', '必须提供账单金额或明细项目');

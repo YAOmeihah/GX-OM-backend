@@ -63,8 +63,8 @@ class CustomerStorePermissionTest extends TestCase
         $this->storeStaffA->stores()->attach($this->storeA->id);
         $this->storeOwnerB->stores()->attach($this->storeB->id);
         
-        // 创建客户
-        $this->customer = Customer::factory()->create(['name' => '测试客户']);
+        // 创建客户（关联到门店A）
+        $this->customer = Customer::factory()->create(['name' => '测试客户', 'store_id' => $this->storeA->id]);
         
         // 创建账单（分别在两个门店）
         $this->invoiceA = Invoice::factory()->create([
@@ -238,11 +238,11 @@ class CustomerStorePermissionTest extends TestCase
         Sanctum::actingAs($this->adminUser);
         
         $response = $this->getJson("/api/customers/{$this->customer->id}/debt");
-        
+
         $response->assertStatus(200);
-        
+
         $data = $response->json('data');
-        
+
         // 应该提供多门店汇总信息
         $this->assertArrayHasKey('store_debt_info', $data);
         $this->assertEquals(2, $data['store_debt_info']['store_count']);

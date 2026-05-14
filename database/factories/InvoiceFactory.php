@@ -19,12 +19,11 @@ class InvoiceFactory extends Factory
     {
         $amount = fake()->randomFloat(2, 100, 5000);
         $paidAmount = fake()->optional(0.3)->randomFloat(2, 0, $amount);
-        $customer = Customer::factory()->create();
 
         return [
             'invoice_number' => 'INV-' . date('Ymd') . '-' . Str::random(5),
-            'store_id' => $customer->store_id,
-            'customer_id' => $customer->id,
+            'store_id' => \App\Models\Store::factory(),
+            'customer_id' => Customer::factory(),
             'created_by' => User::factory(),
             'amount' => $amount,
             'paid_amount' => $paidAmount ?? 0,

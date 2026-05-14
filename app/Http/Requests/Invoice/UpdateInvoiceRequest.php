@@ -96,6 +96,23 @@ class UpdateInvoiceRequest extends FormRequest
     }
 
     /**
+     * 配置验证器实例
+     */
+    public function withValidator($validator)
+    {
+        $validator->after(function ($validator) {
+            $customerId = $this->input('customer_id');
+            if ($customerId) {
+                $invoice = $this->getInvoice();
+                $customer = \App\Models\Customer::find($customerId);
+                if ($customer && $invoice && $customer->store_id != $invoice->store_id) {
+                    $validator->errors()->add('customer_id', '该客户不属于此账单的门店');
+                }
+            }
+        });
+    }
+
+    /**
      * 处理授权失败的响应
      */
     protected function failedAuthorization()
