@@ -10,6 +10,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class MaintenanceCommandsTest extends TestCase
@@ -145,8 +146,14 @@ class MaintenanceCommandsTest extends TestCase
      */
     public function orphan_check_detects_orphan_invoice_items(): void
     {
+        $isSqlite = DB::connection()->getDriverName() === 'sqlite';
+
         // 临时禁用外键检查
-        DB::statement('PRAGMA defer_foreign_keys = ON');
+        if ($isSqlite) {
+            DB::statement('PRAGMA defer_foreign_keys = ON');
+        } else {
+            Schema::disableForeignKeyConstraints();
+        }
 
         // 直接在数据库中创建孤立记录
         DB::table('invoice_items')->insert([
@@ -161,7 +168,11 @@ class MaintenanceCommandsTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        DB::statement('PRAGMA defer_foreign_keys = OFF');
+        if ($isSqlite) {
+            DB::statement('PRAGMA defer_foreign_keys = OFF');
+        } else {
+            Schema::enableForeignKeyConstraints();
+        }
 
         $this->artisan('maintenance:orphan-check', ['--type' => 'invoice_items'])
             ->assertExitCode(0);
