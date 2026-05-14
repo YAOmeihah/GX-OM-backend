@@ -17,14 +17,8 @@ class StorePaymentRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        $storeId = $this->input('store_id');
-
-        if (!$storeId) {
-            return false;
-        }
-
         $user = $this->user();
-        return $user->isAdmin() || $user->belongsToStore($storeId);
+        return $user && ($user->isAdmin() || $user->isStoreOwner() || $user->isStoreStaff());
     }
 
     /**
@@ -50,6 +44,19 @@ class StorePaymentRequest extends FormRequest
             'discount_data.*.type' => 'nullable|string|in:write_off,discount,promotion',
             'discount_data.*.reason' => 'nullable|string|max:500',
         ];
+    }
+
+    /**
+     * 配置验证器实例
+     */
+    public function withValidator($validator)
+    {
+        $validator->after(function ($validator) {
+            $storeId = $this->input('store_id');
+            if ($storeId && !$this->user()->isAdmin() && !$this->user()->belongsToStore($storeId)) {
+                $validator->errors()->add('store_id', '你没有权限在此门店创建还款');
+            }
+        });
     }
 
     /**

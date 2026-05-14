@@ -14,11 +14,11 @@ class StoreCustomerRequest extends FormRequest
 {
     /**
      * 判断用户是否有权限执行此请求
-     * 所有已认证用户都可以创建客户
      */
     public function authorize(): bool
     {
-        return true;
+        $user = $this->user();
+        return $user && ($user->isAdmin() || $user->isStoreOwner() || $user->isStoreStaff());
     }
 
     /**
@@ -39,6 +39,19 @@ class StoreCustomerRequest extends FormRequest
             'id_card'  => 'nullable|string|max:18',
             'remarks'  => 'nullable|string',
         ];
+    }
+
+    /**
+     * 配置验证器实例
+     */
+    public function withValidator($validator)
+    {
+        $validator->after(function ($validator) {
+            $storeId = $this->input('store_id');
+            if ($storeId && !$this->user()->isAdmin() && !$this->user()->belongsToStore($storeId)) {
+                $validator->errors()->add('store_id', '你没有权限在此门店创建客户');
+            }
+        });
     }
 
     /**
