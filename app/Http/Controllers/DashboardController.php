@@ -56,7 +56,9 @@ class DashboardController extends ApiController
         $yesterday = Carbon::yesterday();
 
         // ========== 基础统计 ==========
-        $totalCustomers = Customer::count();
+        $totalCustomers = Customer::when($shouldFilterByStore, function ($query) use ($storeIds) {
+            return $query->whereIn('store_id', $storeIds);
+        })->count();
 
         $totalInvoices = Invoice::when($shouldFilterByStore, function ($query) use ($storeIds) {
             return $query->whereIn('store_id', $storeIds);
@@ -90,7 +92,9 @@ class DashboardController extends ApiController
             });
         })->whereDate('created_at', $today)->sum('discount_amount');
 
-        $todayNewCustomers = Customer::whereDate('created_at', $today)->count();
+        $todayNewCustomers = Customer::when($shouldFilterByStore, function ($query) use ($storeIds) {
+            return $query->whereIn('store_id', $storeIds);
+        })->whereDate('created_at', $today)->count();
 
         // ========== 昨日统计 ==========
         $yesterdayInvoiceStats = Invoice::when($shouldFilterByStore, function ($query) use ($storeIds) {
@@ -111,7 +115,9 @@ class DashboardController extends ApiController
             });
         })->whereDate('created_at', $yesterday)->sum('discount_amount');
 
-        $yesterdayNewCustomers = Customer::whereDate('created_at', $yesterday)->count();
+        $yesterdayNewCustomers = Customer::when($shouldFilterByStore, function ($query) use ($storeIds) {
+            return $query->whereIn('store_id', $storeIds);
+        })->whereDate('created_at', $yesterday)->count();
 
         // ========== 总体统计 ==========
         $overallInvoiceStats = Invoice::when($shouldFilterByStore, function ($query) use ($storeIds) {
@@ -249,8 +255,12 @@ class DashboardController extends ApiController
 
         // 客户统计
         $customerStats = [
-            'total_customers' => Customer::count(),
-            'customers_with_debt' => Customer::whereHas('unpaidInvoices')->count()
+            'total_customers' => Customer::when(!$this->isAdmin(), function ($query) use ($storeIds) {
+                return $query->whereIn('store_id', $storeIds);
+            })->count(),
+            'customers_with_debt' => Customer::whereHas('unpaidInvoices')->when(!$this->isAdmin(), function ($query) use ($storeIds) {
+                return $query->whereIn('store_id', $storeIds);
+            })->count()
         ];
 
         // 账单统计（按时间筛选）
