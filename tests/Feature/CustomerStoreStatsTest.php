@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\Customer;
 use App\Models\Invoice;
-use App\Models\Payment;
 use App\Models\Store;
 use App\Models\User;
 use App\Services\CustomerStatsService;
@@ -17,8 +16,11 @@ class CustomerStoreStatsTest extends TestCase
     use RefreshDatabase;
 
     private User $user;
+
     private Store $store;
+
     private Customer $customer;
+
     private CustomerStatsService $statsService;
 
     protected function setUp(): void
@@ -29,7 +31,7 @@ class CustomerStoreStatsTest extends TestCase
         $this->store = Store::factory()->create();
         $this->user->stores()->attach($this->store->id);
 
-        $this->customer = Customer::factory()->create();
+        $this->customer = Customer::factory()->create(['store_id' => $this->store->id]);
 
         $this->statsService = app(CustomerStatsService::class);
     }
@@ -96,6 +98,7 @@ class CustomerStoreStatsTest extends TestCase
             'customer_id' => $this->customer->id,
             'store_id' => $this->store->id,
             'amount' => 1234.56,
+            'paid_amount' => 0.00,
             'status' => 'unpaid',
             'created_by' => $this->user->id,
         ]);

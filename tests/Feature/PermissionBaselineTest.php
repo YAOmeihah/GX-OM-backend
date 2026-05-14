@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\Customer;
+use App\Models\Invoice;
+use App\Models\Payment;
 use App\Models\Role;
 use App\Models\Store;
 use App\Models\User;
@@ -15,11 +17,17 @@ class PermissionBaselineTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $storeOwner;
+
     private User $storeStaff;
+
     private Store $storeA;
+
     private Store $storeB;
+
     private Customer $customerA;
+
     private Customer $customerB;
 
     protected function setUp(): void
@@ -171,5 +179,60 @@ class PermissionBaselineTest extends TestCase
             $this->admin->can('delete', $this->customerA),
             'Admin should be able to delete any customer'
         );
+    }
+
+    public function test_store_staff_cannot_batch_auto_allocate_store_payments(): void
+    {
+        $invoice = Invoice::factory()->create([
+            'store_id' => $this->storeA->id,
+            'customer_id' => $this->customerA->id,
+            'amount' => 100,
+            'paid_amount' => 0,
+            'status' => 'unpaid',
+        ]);
+
+        $payment = Payment::factory()->create([
+            'store_id' => $this->storeA->id,
+            'customer_id' => $this->customerA->id,
+            'amount' => 100,
+            'allocated_amount' => 0,
+            'received_by' => $this->storeStaff->id,
+        ]);
+
+        Sanctum::actingAs($this->storeStaff);
+
+        $this->postJson('/api/payments/batch-auto-allocate', [
+            'payment_ids' => [$payment->id],
+            'store_id' => $this->storeA->id,
+        ])->assertStatus(403);
+
+        $this->assertDatabaseMissing('payment_allocations', [
+            'payment_id' => $payment->id,
+            'invoice_id' => $invoice->id,
+        ]);
+    }
+
+    public function test_non_admin_user_endpoint_returns_computed_store_manager_flag(): void
+    {
+        Sanctum::actingAs($this->storeOwner);
+
+        $this->getJson('/api/user')
+            ->assertStatus(200)
+            ->assertJsonPath('data.stores.0.id', $this->storeA->id)
+            ->assertJsonPath('data.stores.0.is_manager', true);
+    }
+
+    public function test_admin_can_delete_store_without_business_associations(): void
+    {
+        $store = Store::factory()->create();
+
+        Sanctum::actingAs($this->admin);
+
+        $this->deleteJson("/api/stores/{$store->id}")
+            ->assertStatus(200);
+
+        $this->assertDatabaseMissing('stores', [
+            'id' => $store->id,
+        ]);
     }
 }

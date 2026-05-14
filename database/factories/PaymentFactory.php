@@ -2,8 +2,8 @@
 
 namespace Database\Factories;
 
-use App\Models\Payment;
 use App\Models\Customer;
+use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
@@ -17,12 +17,10 @@ class PaymentFactory extends Factory
 
     public function definition(): array
     {
-        $customer = Customer::factory()->create();
-
         return [
-            'payment_number' => 'PAY-' . date('Ymd') . '-' . Str::random(5),
-            'store_id' => $customer->store_id,
-            'customer_id' => $customer->id,
+            'payment_number' => 'PAY-'.date('Ymd').'-'.Str::random(5),
+            'customer_id' => Customer::factory(),
+            'store_id' => fn (array $attributes) => Customer::find($attributes['customer_id'])->store_id,
             'received_by' => User::factory(),
             'amount' => fake()->randomFloat(2, 100, 5000),
             'allocated_amount' => 0,
@@ -36,7 +34,7 @@ class PaymentFactory extends Factory
      */
     public function cash(): static
     {
-        return $this->state(fn(array $attributes) => [
+        return $this->state(fn (array $attributes) => [
             'payment_method' => 'cash',
         ]);
     }
@@ -46,7 +44,7 @@ class PaymentFactory extends Factory
      */
     public function bankTransfer(): static
     {
-        return $this->state(fn(array $attributes) => [
+        return $this->state(fn (array $attributes) => [
             'payment_method' => 'bank_transfer',
         ]);
     }

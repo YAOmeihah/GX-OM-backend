@@ -6,7 +6,6 @@ use App\Models\Invoice;
 use App\Models\InvoiceShareToken;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 /**
@@ -71,13 +70,13 @@ class PublicInvoiceController extends ApiController
             $invoiceIds = [];
 
             // 验证用户有权限分享该门店
-            if (!$this->isAdmin() && !$this->belongsToStore($storeId)) {
+            if (! $this->isAdmin() && ! $this->belongsToStore($storeId)) {
                 return $this->errorResponse('您没有权限分享该门店的账单', 403);
             }
 
             // 验证客户属于该门店
             $customer = \App\Models\Customer::find($customerId);
-            if (!$customer || $customer->store_id != $storeId) {
+            if (! $customer || $customer->store_id != $storeId) {
                 return $this->errorResponse('客户不属于该门店', 422);
             }
         } else {
@@ -108,7 +107,7 @@ class PublicInvoiceController extends ApiController
             $customerId = $customerIds->first();
 
             // 验证用户有权限访问这些账单的门店
-            if (!$this->isAdmin() && !$this->belongsToStore($storeId)) {
+            if (! $this->isAdmin() && ! $this->belongsToStore($storeId)) {
                 return $this->errorResponse('您没有权限分享该门店的账单', 403);
             }
         }
@@ -170,7 +169,7 @@ class PublicInvoiceController extends ApiController
                 );
 
                 if ($imageContent) {
-                    $qrCodeBase64 = 'data:image/jpeg;base64,' . base64_encode($imageContent);
+                    $qrCodeBase64 = 'data:image/jpeg;base64,'.base64_encode($imageContent);
                 }
             }
         } catch (\Exception $e) {
@@ -225,17 +224,17 @@ class PublicInvoiceController extends ApiController
             ->where('token', $token)
             ->first();
 
-        if (!$shareToken) {
+        if (! $shareToken) {
             return $this->errorResponse('分享链接不存在', 404);
         }
 
-        if (!$shareToken->isValid()) {
+        if (! $shareToken->isValid()) {
             return $this->errorResponse('分享链接已过期', 410); // 410 Gone
         }
 
         // 记录访问日志（仅首页记录，避免翻页重复记录）
         $page = $request->input('page');
-        if (!$page || $page == 1) {
+        if (! $page || $page == 1) {
             $shareToken->logAccess(
                 $request->ip(),
                 $request->userAgent()
@@ -296,7 +295,7 @@ class PublicInvoiceController extends ApiController
                 ->find($invoiceIds[0]);
 
             // 再次检查账单是否存在（防止物理删除）
-            if (!$invoice) {
+            if (! $invoice) {
                 // 如果单账单模式下账单找不到了，作为空列表返回以免前端报错
                 return $this->successResponse([
                     'mode' => 'multiple', // 降级为 multiple 模式返回空
@@ -348,7 +347,7 @@ class PublicInvoiceController extends ApiController
 
         $totalAmount = $allInvoices->sum('amount');
         $totalPaid = $allInvoices->sum('paid_amount');
-        $totalDiscount = $allInvoices->sum(fn($inv) => $inv->total_discount_amount);
+        $totalDiscount = $allInvoices->sum(fn ($inv) => $inv->total_discount_amount);
         $totalRemaining = $totalAmount - $totalPaid - $totalDiscount;
 
         $summary = [
@@ -398,7 +397,7 @@ class PublicInvoiceController extends ApiController
                 'phone' => $maskedPhone,
             ],
             'summary' => $summary,
-            'invoices' => $invoices->map(fn(Invoice $inv) => $this->formatInvoice($inv))->values(),
+            'invoices' => $invoices->map(fn (Invoice $inv) => $this->formatInvoice($inv))->values(),
             'expires_at' => $shareToken->expires_at->toIso8601String(),
         ];
 
@@ -433,14 +432,14 @@ class PublicInvoiceController extends ApiController
             'created_at' => $invoice->created_at->format('Y-m-d H:i'),
             'created_by_name' => $invoice->createdBy?->name ?? '未知',
             'description' => $invoice->description,
-            'items' => $invoice->items->map(fn($item) => [
+            'items' => $invoice->items->map(fn ($item) => [
                 'name' => $item->item_name ?? '商品',
                 'description' => $item->item_description,
                 'quantity' => floatval($item->quantity),
                 'unit_price' => number_format($item->unit_price, 2, '.', ''),
                 'subtotal' => number_format($item->subtotal, 2, '.', ''),
             ])->values(),
-            'attachments' => $invoice->attachments->map(fn($att) => [
+            'attachments' => $invoice->attachments->map(fn ($att) => [
                 'id' => $att->id,
                 'url' => $att->url, // 使用访问器自动生成 URL
                 'thumbnail_url' => $att->url,
@@ -455,9 +454,10 @@ class PublicInvoiceController extends ApiController
      */
     private function maskPhone(?string $phone): ?string
     {
-        if (!$phone || strlen($phone) < 7) {
+        if (! $phone || strlen($phone) < 7) {
             return $phone;
         }
-        return substr($phone, 0, 3) . '****' . substr($phone, -4);
+
+        return substr($phone, 0, 3).'****'.substr($phone, -4);
     }
 }

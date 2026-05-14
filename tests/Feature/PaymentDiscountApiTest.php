@@ -2,28 +2,35 @@
 
 namespace Tests\Feature;
 
-use Tests\TestCase;
-use Tests\Traits\CreatesTestUsers;
-use App\Models\User;
-use App\Models\Store;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentDiscount;
+use App\Models\Store;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
+use Tests\TestCase;
+use Tests\Traits\CreatesTestUsers;
 
 class PaymentDiscountApiTest extends TestCase
 {
-    use RefreshDatabase, CreatesTestUsers;
+    use CreatesTestUsers, RefreshDatabase;
 
     protected User $admin;
+
     protected User $storeOwner;
+
     protected User $storeStaff;
+
     protected Store $store;
+
     protected Customer $customer;
+
     protected Invoice $invoice1;
+
     protected Invoice $invoice2;
+
     protected Payment $payment;
 
     protected function setUp(): void
@@ -50,7 +57,7 @@ class PaymentDiscountApiTest extends TestCase
             'customer_id' => $this->customer->id,
             'amount' => 1500.00,
             'paid_amount' => 0,
-            'status' => 'unpaid'
+            'status' => 'unpaid',
         ]);
 
         $this->invoice2 = Invoice::factory()->create([
@@ -58,7 +65,7 @@ class PaymentDiscountApiTest extends TestCase
             'customer_id' => $this->customer->id,
             'amount' => 835.00,
             'paid_amount' => 0,
-            'status' => 'unpaid'
+            'status' => 'unpaid',
         ]);
 
         // 创建测试还款（2300元）
@@ -66,10 +73,9 @@ class PaymentDiscountApiTest extends TestCase
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'amount' => 2300.00,
-            'received_by' => $this->storeOwner->id
+            'received_by' => $this->storeOwner->id,
         ]);
     }
-
 
     /** @test */
     public function it_can_detect_payment_gap_via_api()
@@ -87,10 +93,10 @@ class PaymentDiscountApiTest extends TestCase
                         'gap_amount' => 35.00,
                         'total_debt' => 2335.00,
                         'payment_amount' => 2300.00,
-                        'can_apply_discount' => true
+                        'can_apply_discount' => true,
                     ],
-                    'can_approve_discount' => true
-                ]
+                    'can_approve_discount' => true,
+                ],
             ]);
     }
 
@@ -105,9 +111,9 @@ class PaymentDiscountApiTest extends TestCase
                     'invoice_id' => $this->invoice2->id,
                     'amount' => 35.00,
                     'type' => 'discount',
-                    'reason' => 'API测试优惠抹零'
-                ]
-            ]
+                    'reason' => 'API测试优惠抹零',
+                ],
+            ],
         ];
 
         $response = $this->postJson("/api/payments/{$this->payment->id}/apply-discount", $discountData);
@@ -115,7 +121,7 @@ class PaymentDiscountApiTest extends TestCase
         $response->assertStatus(200)
             ->assertJson([
                 'success' => true,
-                'message' => '优惠减免处理成功'
+                'message' => '优惠减免处理成功',
             ]);
 
         // 验证数据库记录
@@ -124,7 +130,7 @@ class PaymentDiscountApiTest extends TestCase
             'invoice_id' => $this->invoice2->id,
             'discount_amount' => 35.00,
             'discount_type' => 'discount',
-            'approved_by' => $this->storeOwner->id
+            'approved_by' => $this->storeOwner->id,
         ]);
     }
 
@@ -144,9 +150,9 @@ class PaymentDiscountApiTest extends TestCase
                     'invoice_id' => $this->invoice2->id,
                     'amount' => 35.00,
                     'type' => 'discount',
-                    'reason' => '创建还款时优惠抹零'
-                ]
-            ]
+                    'reason' => '创建还款时优惠抹零',
+                ],
+            ],
         ];
 
         $response = $this->postJson('/api/payments', $paymentData);
@@ -154,20 +160,63 @@ class PaymentDiscountApiTest extends TestCase
         $response->assertStatus(201)
             ->assertJson([
                 'success' => true,
-                'message' => '还款记录创建成功，已处理优惠抹零'
+                'message' => '还款记录创建成功，已处理优惠抹零',
             ]);
 
         // 验证创建了还款记录
         $this->assertDatabaseHas('payments', [
             'customer_id' => $this->customer->id,
-            'amount' => 2300.00
+            'amount' => 2300.00,
         ]);
 
         // 验证创建了优惠减免记录
         $this->assertDatabaseHas('payment_discounts', [
             'invoice_id' => $this->invoice2->id,
             'discount_amount' => 35.00,
-            'discount_type' => 'discount'
+            'discount_type' => 'discount',
+        ]);
+    }
+
+    /** @test */
+    public function it_rejects_discount_invoice_from_another_store_when_creating_payment()
+    {
+        Sanctum::actingAs($this->storeOwner);
+
+        $otherStore = Store::factory()->create();
+        $otherCustomer = Customer::factory()->create(['store_id' => $otherStore->id]);
+        $otherInvoice = Invoice::factory()->create([
+            'store_id' => $otherStore->id,
+            'customer_id' => $otherCustomer->id,
+            'amount' => 35.00,
+            'paid_amount' => 0,
+            'status' => 'unpaid',
+        ]);
+
+        $response = $this->postJson('/api/payments', [
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 2300.00,
+            'payment_method' => 'cash',
+            'apply_discount' => true,
+            'discount_data' => [
+                [
+                    'invoice_id' => $otherInvoice->id,
+                    'amount' => 35.00,
+                    'type' => 'discount',
+                    'reason' => '跨门店优惠应被拒绝',
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJson([
+                'success' => false,
+                'message' => '账单与还款的客户或门店不匹配',
+            ]);
+
+        $this->assertDatabaseMissing('payment_discounts', [
+            'invoice_id' => $otherInvoice->id,
+            'discount_amount' => 35.00,
         ]);
     }
 
@@ -187,9 +236,9 @@ class PaymentDiscountApiTest extends TestCase
                     'invoice_id' => $this->invoice1->id,
                     'amount' => 1000.00, // 超过店员权限
                     'type' => 'write_off',
-                    'reason' => '测试权限控制'
-                ]
-            ]
+                    'reason' => '测试权限控制',
+                ],
+            ],
         ];
 
         $response = $this->postJson("/api/payments/{$this->payment->id}/apply-discount", $discountData);
@@ -208,9 +257,9 @@ class PaymentDiscountApiTest extends TestCase
                     'invoice_id' => 99999, // 不存在的账单
                     'amount' => 35.00,
                     'type' => 'discount',
-                    'reason' => '测试验证'
-                ]
-            ]
+                    'reason' => '测试验证',
+                ],
+            ],
         ];
 
         $response = $this->postJson("/api/payments/{$this->payment->id}/apply-discount", $invalidData);
@@ -223,9 +272,9 @@ class PaymentDiscountApiTest extends TestCase
                     'invoice_id' => $this->invoice1->id,
                     'amount' => -10.00,
                     'type' => 'discount',
-                    'reason' => '测试负数金额'
-                ]
-            ]
+                    'reason' => '测试负数金额',
+                ],
+            ],
         ];
 
         $response = $this->postJson("/api/payments/{$this->payment->id}/apply-discount", $negativeAmountData);
@@ -241,7 +290,7 @@ class PaymentDiscountApiTest extends TestCase
             'invoice_id' => $this->invoice1->id,
             'discount_amount' => 50.00,
             'discount_type' => 'discount',
-            'approved_by' => $this->storeOwner->id
+            'approved_by' => $this->storeOwner->id,
         ]);
 
         PaymentDiscount::factory()->create([
@@ -249,12 +298,12 @@ class PaymentDiscountApiTest extends TestCase
             'invoice_id' => $this->invoice2->id,
             'discount_amount' => 25.00,
             'discount_type' => 'promotion',
-            'approved_by' => $this->storeOwner->id
+            'approved_by' => $this->storeOwner->id,
         ]);
 
         Sanctum::actingAs($this->storeOwner);
 
-        $response = $this->getJson('/api/discount-statistics?store_id=' . $this->store->id);
+        $response = $this->getJson('/api/discount-statistics?store_id='.$this->store->id);
 
         $response->assertStatus(200)
             ->assertJson([
@@ -262,8 +311,8 @@ class PaymentDiscountApiTest extends TestCase
                 'data' => [
                     'total_count' => 2,
                     'total_amount' => 75.00,
-                    'average_amount' => 37.50
-                ]
+                    'average_amount' => 37.50,
+                ],
             ]);
     }
 
@@ -276,7 +325,7 @@ class PaymentDiscountApiTest extends TestCase
             'invoice_id' => $this->invoice1->id,
             'discount_amount' => 35.00,
             'discount_type' => 'discount',
-            'approved_by' => $this->storeOwner->id
+            'approved_by' => $this->storeOwner->id,
         ]);
 
         Sanctum::actingAs($this->storeOwner);
@@ -295,10 +344,10 @@ class PaymentDiscountApiTest extends TestCase
                             'discount_type',
                             'reason',
                             'invoice',
-                            'approved_by'
-                        ]
-                    ]
-                ]
+                            'approved_by',
+                        ],
+                    ],
+                ],
             ]);
     }
 
@@ -311,7 +360,7 @@ class PaymentDiscountApiTest extends TestCase
             'invoice_id' => $this->invoice1->id,
             'discount_amount' => 35.00,
             'discount_type' => 'discount',
-            'approved_by' => $this->storeOwner->id
+            'approved_by' => $this->storeOwner->id,
         ]);
 
         Sanctum::actingAs($this->storeOwner);
@@ -333,10 +382,10 @@ class PaymentDiscountApiTest extends TestCase
                             'paid_amount',
                             'discount_amount',
                             'actual_remaining',
-                            'has_discounts'
-                        ]
-                    ]
-                ]
+                            'has_discounts',
+                        ],
+                    ],
+                ],
             ]);
     }
 }

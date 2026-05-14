@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Role;
+use App\Models\Store;
+use App\Models\User;
 use App\Services\AuditLogService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
-use App\Models\User;
-use App\Models\Role;
-use App\Models\Store;
 
 /**
  * @group 认证管理
@@ -83,7 +83,7 @@ class AuthController extends ApiController
 
         $user = User::where($loginField, $request->login)->first();
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        if (! $user || ! Hash::check($request->password, $user->password)) {
             // 记录登录失败的审计日志
             if ($user) {
                 $this->auditLogService->logLogin($user, false, '密码错误');
@@ -272,7 +272,7 @@ class AuthController extends ApiController
                 'username' => $user->username,
                 'email' => $user->email,
                 'roles' => $user->roles->pluck('slug')->toArray(),
-                'stores' => $user->stores->map(function ($store) {
+                'stores' => $user->stores->map(function ($store) use ($user) {
                     return [
                         'id' => $store->id,
                         'name' => $store->name,
@@ -341,7 +341,7 @@ class AuthController extends ApiController
         $user = $request->user();
 
         // 验证当前密码是否正确
-        if (!Hash::check($request->current_password, $user->password)) {
+        if (! Hash::check($request->current_password, $user->password)) {
             throw ValidationException::withMessages([
                 'current_password' => ['当前密码错误'],
             ]);
@@ -370,7 +370,7 @@ class AuthController extends ApiController
      *
      * 管理员用户返回系统中所有门店，其他用户返回其关联的门店
      *
-     * @param User $user 用户实例
+     * @param  User  $user  用户实例
      * @return array 门店列表数组
      */
     private function getUserStoresResponse(User $user): array
@@ -388,7 +388,7 @@ class AuthController extends ApiController
         }
 
         // 非管理员返回关联的门店
-        return $user->stores->map(function ($store) {
+        return $user->stores->map(function ($store) use ($user) {
             return [
                 'id' => $store->id,
                 'name' => $store->name,

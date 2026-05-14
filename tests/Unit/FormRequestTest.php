@@ -2,32 +2,31 @@
 
 namespace Tests\Unit;
 
-use Tests\TestCase;
-use Tests\Traits\CreatesTestUsers;
-use App\Http\Requests\Payment\StorePaymentRequest;
-use App\Http\Requests\Payment\AllocatePaymentRequest;
-use App\Http\Requests\Invoice\StoreInvoiceRequest;
-use App\Http\Requests\Invoice\UpdateInvoiceRequest;
 use App\Http\Requests\Customer\StoreCustomerRequest;
-use App\Http\Requests\Customer\UpdateCustomerRequest;
-use App\Models\User;
-use App\Models\Store;
+use App\Http\Requests\Invoice\StoreInvoiceRequest;
+use App\Http\Requests\Payment\StorePaymentRequest;
 use App\Models\Customer;
-use App\Models\Invoice;
 use App\Models\Payment;
+use App\Models\Store;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Validator;
+use Tests\TestCase;
+use Tests\Traits\CreatesTestUsers;
 
 /**
  * 测试 FormRequest 验证规则
  */
 class FormRequestTest extends TestCase
 {
-    use RefreshDatabase, CreatesTestUsers;
+    use CreatesTestUsers, RefreshDatabase;
 
     protected User $admin;
+
     protected User $storeOwner;
+
     protected Store $store;
+
     protected Customer $customer;
 
     protected function setUp(): void
@@ -39,7 +38,7 @@ class FormRequestTest extends TestCase
         $this->store = Store::factory()->create();
         $this->admin = $this->createAdmin();
         $this->storeOwner = $this->createStoreOwner([], $this->store);
-        $this->customer = Customer::factory()->create();
+        $this->customer = Customer::factory()->create(['store_id' => $this->store->id]);
     }
 
     // ===================== StorePaymentRequest 测试 =====================
@@ -47,7 +46,7 @@ class FormRequestTest extends TestCase
     /** @test */
     public function store_payment_request_validates_required_fields()
     {
-        $request = new StorePaymentRequest();
+        $request = new StorePaymentRequest;
         $rules = $request->rules();
 
         // 检查必填字段
@@ -65,7 +64,7 @@ class FormRequestTest extends TestCase
     /** @test */
     public function store_payment_request_validates_amount()
     {
-        $rules = (new StorePaymentRequest())->rules();
+        $rules = (new StorePaymentRequest)->rules();
 
         // amount 应该是必填、数值、最小0.01
         $this->assertStringContainsString('required', $rules['amount']);
@@ -76,7 +75,7 @@ class FormRequestTest extends TestCase
     /** @test */
     public function store_payment_request_validates_payment_method()
     {
-        $rules = (new StorePaymentRequest())->rules();
+        $rules = (new StorePaymentRequest)->rules();
 
         // payment_method 应该在规则中
         $this->assertArrayHasKey('payment_method', $rules);
@@ -108,7 +107,7 @@ class FormRequestTest extends TestCase
     /** @test */
     public function store_payment_request_validates_optional_discount_data()
     {
-        $rules = (new StorePaymentRequest())->rules();
+        $rules = (new StorePaymentRequest)->rules();
 
         // discount_data 是可选数组
         $this->assertArrayHasKey('discount_data', $rules);
@@ -119,7 +118,7 @@ class FormRequestTest extends TestCase
     /** @test */
     public function store_invoice_request_validates_required_fields()
     {
-        $request = new StoreInvoiceRequest();
+        $request = new StoreInvoiceRequest;
         $rules = $request->rules();
 
         $this->assertArrayHasKey('store_id', $rules);
@@ -130,7 +129,7 @@ class FormRequestTest extends TestCase
     /** @test */
     public function store_invoice_request_validates_items_array()
     {
-        $rules = (new StoreInvoiceRequest())->rules();
+        $rules = (new StoreInvoiceRequest)->rules();
 
         // items 是可选数组
         $this->assertArrayHasKey('items', $rules);
@@ -143,17 +142,17 @@ class FormRequestTest extends TestCase
     /** @test */
     public function store_customer_request_validates_name()
     {
-        $rules = (new StoreCustomerRequest())->rules();
+        $rules = (new StoreCustomerRequest)->rules();
 
         $this->assertArrayHasKey('name', $rules);
-        $this->assertStringContainsString('required', $rules['name']);
-        $this->assertStringContainsString('max:255', $rules['name']);
+        $this->assertContains('required', $rules['name']);
+        $this->assertContains('max:255', $rules['name']);
     }
 
     /** @test */
     public function store_customer_request_validates_email_format()
     {
-        $rules = (new StoreCustomerRequest())->rules();
+        $rules = (new StoreCustomerRequest)->rules();
 
         $this->assertArrayHasKey('email', $rules);
         $this->assertStringContainsString('email', $rules['email']);
@@ -171,7 +170,7 @@ class FormRequestTest extends TestCase
             'payment_method' => 'cash',
         ];
 
-        $request = new StorePaymentRequest();
+        $request = new StorePaymentRequest;
         $validator = Validator::make($data, $request->rules());
 
         $this->assertFalse($validator->fails());
@@ -187,7 +186,7 @@ class FormRequestTest extends TestCase
             'payment_method' => 'cash',
         ];
 
-        $request = new StorePaymentRequest();
+        $request = new StorePaymentRequest;
         $validator = Validator::make($data, $request->rules());
 
         $this->assertTrue($validator->fails());
@@ -204,7 +203,7 @@ class FormRequestTest extends TestCase
             'payment_method' => 'invalid_method', // 无效的支付方式
         ];
 
-        $request = new StorePaymentRequest();
+        $request = new StorePaymentRequest;
         $validator = Validator::make($data, $request->rules());
 
         $this->assertTrue($validator->fails());
@@ -215,12 +214,13 @@ class FormRequestTest extends TestCase
     public function validates_valid_customer_data()
     {
         $data = [
+            'store_id' => $this->store->id,
             'name' => '张三',
             'phone' => '13800138000',
             'email' => 'zhangsan@example.com',
         ];
 
-        $request = new StoreCustomerRequest();
+        $request = new StoreCustomerRequest;
         $validator = Validator::make($data, $request->rules());
 
         $this->assertFalse($validator->fails());
@@ -234,7 +234,7 @@ class FormRequestTest extends TestCase
             'email' => 'not_an_email', // 无效的邮箱格式
         ];
 
-        $request = new StoreCustomerRequest();
+        $request = new StoreCustomerRequest;
         $validator = Validator::make($data, $request->rules());
 
         $this->assertTrue($validator->fails());
@@ -250,7 +250,7 @@ class FormRequestTest extends TestCase
             'amount' => 500.00,
         ];
 
-        $request = new StoreInvoiceRequest();
+        $request = new StoreInvoiceRequest;
         $validator = Validator::make($data, $request->rules());
 
         $this->assertFalse($validator->fails());
@@ -276,7 +276,7 @@ class FormRequestTest extends TestCase
             ],
         ];
 
-        $request = new StoreInvoiceRequest();
+        $request = new StoreInvoiceRequest;
         $validator = Validator::make($data, $request->rules());
 
         $this->assertFalse($validator->fails());

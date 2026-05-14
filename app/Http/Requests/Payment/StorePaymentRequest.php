@@ -3,11 +3,10 @@
 namespace App\Http\Requests\Payment;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 /**
  * 创建还款记录请求验证
- * 
+ *
  * 将 PaymentController::store() 中的验证逻辑抽离到此处
  */
 class StorePaymentRequest extends FormRequest
@@ -18,6 +17,7 @@ class StorePaymentRequest extends FormRequest
     public function authorize(): bool
     {
         $user = $this->user();
+
         return $user && ($user->isAdmin() || $user->isStoreOwner() || $user->isStoreStaff());
     }
 
@@ -53,7 +53,7 @@ class StorePaymentRequest extends FormRequest
     {
         $validator->after(function ($validator) {
             $storeId = $this->input('store_id');
-            if ($storeId && !$this->user()->isAdmin() && !$this->user()->belongsToStore($storeId)) {
+            if ($storeId && ! $this->user()->isAdmin() && ! $this->user()->belongsToStore($storeId)) {
                 $validator->errors()->add('store_id', '你没有权限在此门店创建还款');
             }
 
