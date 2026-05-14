@@ -813,7 +813,6 @@ Authorization: Bearer {token}
                 "amount": "1000.00",
                 "paid_amount": "500.00",
                 "status": "partially_paid",
-                "invoice_date": "2024-01-01",
                 "due_date": "2024-01-31"
             }
         ],
@@ -822,7 +821,6 @@ Authorization: Bearer {token}
                 "id": 1,
                 "payment_number": "PAY-MAIN-20240101-XYZ12",
                 "amount": "500.00",
-                "payment_date": "2024-01-15",
                 "payment_method": "cash"
             }
         ]
@@ -991,7 +989,6 @@ GET /api/invoices?store_id=1&status=unpaid&start_date=2024-01-01&end_date=2024-0
                 "created_by": 1,
                 "amount": "1000.00",
                 "paid_amount": "500.00",
-                "invoice_date": "2024-01-01T00:00:00.000000Z",
                 "due_date": "2024-01-31T00:00:00.000000Z",
                 "status": "partially_paid",
                 "description": "商品销售",
@@ -1054,7 +1051,6 @@ GET /api/invoices?store_id=1&status=unpaid&start_date=2024-01-01&end_date=2024-0
 | created_by | integer | 创建者用户ID |
 | amount | string | 账单总金额（保留2位小数） |
 | paid_amount | string | 已付金额（保留2位小数） |
-| invoice_date | string | 账单日期（ISO 8601格式） |
 | due_date | string | 到期日期（ISO 8601格式） |
 | status | string | 账单状态：unpaid, partially_paid, paid, overdue |
 | description | string\|null | 账单描述 |
@@ -1113,7 +1109,6 @@ Content-Type: application/json
     "store_id": 1,
     "customer_id": 1,
     "amount": 1500.00,
-    "invoice_date": "2024-01-01",
     "due_date": "2024-01-31",
     "description": "商品销售账单"
 }
@@ -1124,7 +1119,6 @@ Content-Type: application/json
 {
     "store_id": 1,
     "customer_id": 1,
-    "invoice_date": "2024-01-01",
     "due_date": "2024-01-31",
     "description": "商品销售账单",
     "items": [
@@ -1153,7 +1147,6 @@ Content-Type: application/json
 | store_id | integer | 是 | 门店ID，必须存在 |
 | customer_id | integer | 是 | 客户ID，必须存在 |
 | amount | decimal | 条件必填 | 账单金额，最小0.01（传统模式必填，明细模式可选） |
-| invoice_date | string | 是 | 账单日期 (YYYY-MM-DD) |
 | due_date | string | 否 | 到期日期 (YYYY-MM-DD)，必须大于等于账单日期 |
 | description | string | 否 | 账单描述 |
 | items | array | 条件必填 | 明细项目数组（明细模式必填） |
@@ -1183,7 +1176,6 @@ Content-Type: application/json
         "amount": "300.00",
         "paid_amount": "0.00",
         "status": "unpaid",
-        "invoice_date": "2024-01-01",
         "due_date": "2024-01-31",
         "description": "商品销售账单",
         "created_at": "2024-01-01T00:00:00.000000Z",
@@ -1251,7 +1243,6 @@ Authorization: Bearer {token}
         "amount": "1000.00",
         "paid_amount": "500.00",
         "status": "partially_paid",
-        "invoice_date": "2024-01-01",
         "due_date": "2024-01-31",
         "description": "商品销售",
         "created_at": "2024-01-01T00:00:00.000000Z",
@@ -1278,7 +1269,6 @@ Authorization: Bearer {token}
                     "id": 1,
                     "payment_number": "PAY-MAIN-20240115-ABC12",
                     "amount": "500.00",
-                    "payment_date": "2024-01-15",
                     "payment_method": "cash"
                 },
                 "allocated_by": {
@@ -1318,7 +1308,6 @@ Content-Type: application/json
 ```json
 {
     "amount": 1200.00,
-    "invoice_date": "2024-01-01",
     "due_date": "2024-02-01",
     "description": "更新后的账单描述"
 }
@@ -1329,7 +1318,6 @@ Content-Type: application/json
 | 参数名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
 | amount | decimal | 否 | 账单金额，最小0.01（如果已有付款则不能修改） |
-| invoice_date | string | 否 | 账单日期 (YYYY-MM-DD) |
 | due_date | string | 否 | 到期日期 (YYYY-MM-DD) |
 | description | string | 否 | 账单描述 |
 
@@ -1349,7 +1337,6 @@ Content-Type: application/json
         "amount": "1200.00",
         "paid_amount": "0.00",
         "status": "unpaid",
-        "invoice_date": "2024-01-01",
         "due_date": "2024-02-01",
         "description": "更新后的账单描述",
         "created_at": "2024-01-01T00:00:00.000000Z",
@@ -2240,7 +2227,6 @@ GET /api/payments?store_id=1&payment_method=cash&start_date=2024-01-01&end_date=
                 "payment_number": "PAY-MAIN-20240115-ABC12",
                 "amount": "500.00",
                 "allocated_amount": "500.00",
-                "payment_date": "2024-01-15",
                 "payment_method": "cash",
                 "reference_number": null,
                 "remarks": "现金还款",
@@ -2298,7 +2284,6 @@ Content-Type: application/json
     "store_id": 1,
     "customer_id": 1,
     "amount": 800.00,
-    "payment_date": "2024-01-15",
     "payment_method": "cash",
     "reference_number": "REF123456",
     "remarks": "现金还款",
@@ -2322,7 +2307,6 @@ Content-Type: application/json
 | store_id | integer | 是 | 门店ID，必须存在 |
 | customer_id | integer | 是 | 客户ID，必须存在 |
 | amount | decimal | 是 | 还款金额，最小0.01 |
-| payment_date | string | 是 | 还款日期 (YYYY-MM-DD) |
 | payment_method | string | 是 | 支付方式：cash, bank_transfer, wechat, alipay, other |
 | reference_number | string | 否 | 参考号码，最大255字符 |
 | remarks | string | 否 | 备注信息 |
@@ -2343,7 +2327,6 @@ Content-Type: application/json
         "received_by": 1,
         "amount": "800.00",
         "allocated_amount": "800.00",
-        "payment_date": "2024-01-15",
         "payment_method": "cash",
         "reference_number": "REF123456",
         "remarks": "现金还款",
@@ -2424,7 +2407,6 @@ Authorization: Bearer {token}
         "payment_number": "PAY-MAIN-20240115-ABC12",
         "amount": "500.00",
         "allocated_amount": "500.00",
-        "payment_date": "2024-01-15",
         "payment_method": "cash",
         "reference_number": null,
         "remarks": "现金还款",
@@ -3289,7 +3271,6 @@ curl -X POST http://your-domain.com/api/invoices \
     "store_id": 1,
     "customer_id": 1,
     "amount": 1000.00,
-    "invoice_date": "2024-01-01",
     "due_date": "2024-01-31",
     "description": "商品销售"
   }'
@@ -3305,7 +3286,6 @@ curl -X POST http://your-domain.com/api/payments \
     "store_id": 1,
     "customer_id": 1,
     "amount": 500.00,
-    "payment_date": "2024-01-15",
     "payment_method": "cash",
     "allocations": [
       {
@@ -3727,7 +3707,6 @@ GET /api/customers/1/debt?store_id=1
     "store_id": 1,
     "customer_id": 1,
     "amount": 2300.00,
-    "payment_date": "2024-01-01",
     "payment_method": "cash",
     "remarks": "上门收款",
     "apply_discount": true,
@@ -4021,7 +4000,6 @@ POST /api/payments
     "store_id": 1,
     "customer_id": 1,
     "amount": 2300.00,
-    "payment_date": "2024-01-01",
     "payment_method": "cash",
     "apply_discount": true,
     "discount_data": [
@@ -4049,7 +4027,6 @@ POST /api/payments
     "store_id": 1,
     "customer_id": 1,
     "amount": 2300.00,
-    "payment_date": "2024-01-01",
     "payment_method": "cash"
 }
 ```

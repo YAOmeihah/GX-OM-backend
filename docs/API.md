@@ -2344,7 +2344,6 @@ fetch('http://localhost:8000/api/customers', {
                 "amount": "1000.00",
                 "paid_amount": "500.00",
                 "status": "partially_paid",
-                "invoice_date": "2024-01-01"
             }
         ],
         "payments": [
@@ -2352,7 +2351,6 @@ fetch('http://localhost:8000/api/customers', {
                 "id": 1,
                 "payment_number": "PAY-MAIN-20240101-XYZ99",
                 "amount": "500.00",
-                "payment_date": "2024-01-05",
                 "payment_method": "cash"
             }
         ]
@@ -2930,7 +2928,6 @@ fetch('http://localhost:8000/api/customers/similique/clear-debt', {
                 "amount": "1000.00",
                 "paid_amount": "500.00",
                 "status": "partially_paid",
-                "invoice_date": "2024-01-01",
                 "due_date": "2024-02-01",
                 "description": "商品销售",
                 "created_at": "2024-01-01T00:00:00.000000Z",
@@ -3187,7 +3184,6 @@ fetch('http://localhost:8000/api/invoices', {
         "amount": "1000.00",
         "paid_amount": "500.00",
         "status": "partially_paid",
-        "invoice_date": "2024-01-01",
         "due_date": "2024-02-01",
         "description": "商品销售",
         "created_at": "2024-01-01T00:00:00.000000Z",
@@ -3323,7 +3319,6 @@ fetch('http://localhost:8000/api/invoices/1', {
 |--------|------|------|------|------|
 | `customer_id` | string | ❌ | The <code>id</code> of an existing record in the customers table. | `` |
 | `amount` | number | ❌ | 账单总金额（仅无付款时可修改），最小0.01 | `1500` |
-| `invoice_date` | string | ❌ | 账单日期(YYYY-MM-DD格式)（仅无付款时可修改） | `2024-01-02` |
 | `due_date` | string | ❌ | 到期日期(YYYY-MM-DD格式)（仅无付款时可修改） | `2024-02-15` |
 | `description` | string | ❌ | 账单描述/备注 | `商品销售（已更新）` |
 | `items` | string[] | ❌ | 账单明细项目列表（仅无付款时可修改） | `["explicabo"]` |
@@ -3349,7 +3344,6 @@ fetch('http://localhost:8000/api/invoices/1', {
         "amount": "1500.00",
         "paid_amount": "0.00",
         "status": "unpaid",
-        "invoice_date": "2024-01-02",
         "due_date": "2024-02-15",
         "description": "商品销售（已更新）",
         "items": [
@@ -3411,7 +3405,7 @@ curl -X PUT \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Accept: application/json" \
   -H "Content-Type: application/json" \
-  -d '{"customer_id":"","amount":1500,"invoice_date":"2024-01-02","due_date":"2024-02-15","description":"商品销售（已更新）","items":["explicabo"],"items[].id":"","items[].item_name":"商品B","items[].item_description":"高端商品","items[].quantity":3,"items[].unit_price":500,"items[].sort_order":0}' \
+  -d '{"customer_id":"","amount":1500,"due_date":"2024-02-15","description":"商品销售（已更新）","items":["explicabo"],"items[].id":"","items[].item_name":"商品B","items[].item_description":"高端商品","items[].quantity":3,"items[].unit_price":500,"items[].sort_order":0}' \
   "http://localhost:8000/api/invoices/1"
 ```
 
@@ -3423,7 +3417,7 @@ fetch('http://localhost:8000/api/invoices/1', {
     'Accept': 'application/json',
     'Content-Type': 'application/json'
   },
-  body: JSON.stringify({"customer_id":"","amount":1500,"invoice_date":"2024-01-02","due_date":"2024-02-15","description":"商品销售（已更新）","items":["explicabo"],"items[].id":"","items[].item_name":"商品B","items[].item_description":"高端商品","items[].quantity":3,"items[].unit_price":500,"items[].sort_order":0})
+  body: JSON.stringify({"customer_id":"","amount":1500,"due_date":"2024-02-15","description":"商品销售（已更新）","items":["explicabo"],"items[].id":"","items[].item_name":"商品B","items[].item_description":"高端商品","items[].quantity":3,"items[].unit_price":500,"items[].sort_order":0})
 })
 .then(response => response.json())
 .then(data => console.log(data));
@@ -5203,7 +5197,6 @@ fetch('http://localhost:8000/api/config/s3/test', {
                 },
                 "amount": "500.00",
                 "allocated_amount": "500.00",
-                "payment_date": "2024-01-05",
                 "payment_method": "cash",
                 "reference_number": null,
                 "remarks": "现金还款",
@@ -5451,7 +5444,6 @@ fetch('http://localhost:8000/api/payments', {
         },
         "amount": "500.00",
         "allocated_amount": "500.00",
-        "payment_date": "2024-01-05",
         "payment_method": "cash",
         "reference_number": "TXN20240105001",
         "remarks": "现金还款",
