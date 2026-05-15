@@ -19,7 +19,7 @@
 .phpunit.result.cache
 
 # Local AI/tooling state
-/.serena
+
 
 Homestead.json
 Homestead.yaml
