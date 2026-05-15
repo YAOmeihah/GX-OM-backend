@@ -41,25 +41,6 @@ return new class extends Migration
                 $table->unique(['invoice_id', 'line_uid'], 'invoice_items_invoice_line_uid_unique');
             });
         }
-
-        return;
-
-        Schema::table('invoice_items', function (Blueprint $table) {
-            $table->string('line_uid', 36)->nullable()->after('invoice_id')->comment('明细稳定业务标识（UUID）');
-        });
-
-        // 回填历史数据
-        DB::table('invoice_items')->whereNull('line_uid')->orderBy('id')->each(function ($item) {
-            DB::table('invoice_items')
-                ->where('id', $item->id)
-                ->update(['line_uid' => (string) Str::uuid()]);
-        });
-
-        // 改为非空并加唯一索引
-        Schema::table('invoice_items', function (Blueprint $table) {
-            $table->string('line_uid', 36)->nullable(false)->change();
-            $table->unique(['invoice_id', 'line_uid'], 'invoice_items_invoice_line_uid_unique');
-        });
     }
 
     public function down(): void
@@ -75,13 +56,6 @@ return new class extends Migration
                 $table->dropColumn('line_uid');
             });
         }
-
-        return;
-
-        Schema::table('invoice_items', function (Blueprint $table) {
-            $table->dropUnique('invoice_items_invoice_line_uid_unique');
-            $table->dropColumn('line_uid');
-        });
     }
 
     private function hasIndex(string $table, string $indexName): bool
