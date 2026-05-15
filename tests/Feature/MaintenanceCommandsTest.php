@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Payment;
 use App\Models\PaymentDiscount;
 use App\Models\Store;
 use App\Models\User;
@@ -75,7 +76,7 @@ class MaintenanceCommandsTest extends TestCase
     {
         $createdAt = Carbon::now()->subMonths(4)->toDateTimeString();
 
-        DB::table('payments')->insert([
+        $paymentId = DB::table('payments')->insertGetId([
             'payment_number' => 'PAY-'.Carbon::now()->format('Ymd').'-P3ZERO',
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
@@ -91,18 +92,10 @@ class MaintenanceCommandsTest extends TestCase
             '--dry-run' => true,
             '--include' => 'payments',
         ])
-            ->expectsTable(
-                ['数据类型', '数量'],
-                [
-                    ['账单 (Invoice)', 0],
-                    ['账单明细 (InvoiceItem)', 0],
-                    ['还款 (Payment)', 0],
-                    ['还款分配 (PaymentAllocation)', 0],
-                    ['优惠减免 (PaymentDiscount)', 0],
-                    ['附件 (Attachment)', 0],
-                ]
-            )
+            ->expectsOutput('没有符合条件的数据需要清理。')
             ->assertExitCode(0);
+
+        $this->assertDatabaseHas('payments', ['id' => $paymentId]);
     }
 
     /**
@@ -335,6 +328,177 @@ class MaintenanceCommandsTest extends TestCase
         $this->artisan('maintenance:run', ['--profile' => 'invalid'])
             ->expectsOutputToContain('daily')
             ->assertExitCode(1);
+    }
+
+    /**
+     * @test
+     */
+    public function run_maintenance_dry_run_profiles_do_not_fail_or_write(): void
+    {
+        foreach (['daily', 'weekly', 'monthly'] as $profile) {
+            $invoice = Invoice::factory()->create([
+                'store_id' => $this->store->id,
+                'customer_id' => $this->customer->id,
+                'created_by' => $this->user->id,
+                'amount' => 999,
+                'paid_amount' => 0,
+                'status' => 'paid',
+            ]);
+
+            $this->artisan('maintenance:run', [
+                '--profile' => $profile,
+                '--dry-run' => true,
+            ])->assertExitCode(0);
+
+            $this->assertDatabaseHas('invoices', [
+                'id' => $invoice->id,
+                'amount' => 999,
+                'status' => 'paid',
+            ]);
+        }
+    }
+
+    /**
+     * @test
+     */
+    public function integrity_check_dry_run_fix_does_not_write(): void
+    {
+        $invoice = Invoice::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'created_by' => $this->user->id,
+            'amount' => 999,
+        ]);
+
+        DB::table('invoice_items')->insert([
+            'invoice_id' => $invoice->id,
+            'line_uid' => (string) \Illuminate\Support\Str::uuid(),
+            'item_name' => '测试项',
+            'quantity' => 1,
+            'unit_price' => 100,
+            'subtotal' => 100,
+            'sort_order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->artisan('maintenance:integrity-check', [
+            '--type' => 'invoice_amount',
+            '--fix' => true,
+            '--dry-run' => true,
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseHas('invoices', [
+            'id' => $invoice->id,
+            'amount' => 999,
+        ]);
+    }
+
+    /**
+     * @test
+     */
+    public function integrity_fix_syncs_customer_store_stats(): void
+    {
+        $invoice = Invoice::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'created_by' => $this->user->id,
+            'amount' => 100,
+            'paid_amount' => 0,
+            'status' => 'unpaid',
+        ]);
+
+        DB::table('invoice_items')->insert([
+            'invoice_id' => $invoice->id,
+            'line_uid' => (string) \Illuminate\Support\Str::uuid(),
+            'item_name' => '测试项',
+            'quantity' => 1,
+            'unit_price' => 250,
+            'subtotal' => 250,
+            'sort_order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        app(\App\Services\CustomerStatsService::class)->syncCustomerStoreStats($this->customer->id, $this->store->id);
+        $this->assertDatabaseHas('customer_store_stats', [
+            'customer_id' => $this->customer->id,
+            'store_id' => $this->store->id,
+            'total_debt' => 100,
+        ]);
+
+        $this->artisan('maintenance:integrity-check', [
+            '--type' => 'invoice_amount',
+            '--fix' => true,
+        ])->expectsConfirmation('确认自动修复以上问题?', 'yes')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('invoices', [
+            'id' => $invoice->id,
+            'amount' => 250,
+        ]);
+        $this->assertDatabaseHas('customer_store_stats', [
+            'customer_id' => $this->customer->id,
+            'store_id' => $this->store->id,
+            'total_debt' => 250,
+        ]);
+    }
+
+    /**
+     * @test
+     */
+    public function integrity_fix_all_recalculates_status_after_amount_repairs(): void
+    {
+        $invoice = Invoice::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'created_by' => $this->user->id,
+            'amount' => 100,
+            'paid_amount' => 50,
+            'status' => 'unpaid',
+        ]);
+
+        DB::table('invoice_items')->insert([
+            'invoice_id' => $invoice->id,
+            'line_uid' => (string) \Illuminate\Support\Str::uuid(),
+            'item_name' => '测试项',
+            'quantity' => 1,
+            'unit_price' => 50,
+            'subtotal' => 50,
+            'sort_order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $payment = Payment::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'received_by' => $this->user->id,
+            'amount' => 50,
+            'allocated_amount' => 50,
+        ]);
+
+        DB::table('payment_allocations')->insert([
+            'payment_id' => $payment->id,
+            'invoice_id' => $invoice->id,
+            'amount' => 50,
+            'allocated_by' => $this->user->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->artisan('maintenance:integrity-check', [
+            '--type' => 'all',
+            '--fix' => true,
+        ])->expectsConfirmation('确认自动修复以上问题?', 'yes')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('invoices', [
+            'id' => $invoice->id,
+            'amount' => 50,
+            'paid_amount' => 50,
+            'status' => 'paid',
+        ]);
     }
 
     // ==================== CleanupAuditLogs Tests ====================

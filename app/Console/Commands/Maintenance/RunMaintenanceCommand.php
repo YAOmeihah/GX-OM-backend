@@ -94,11 +94,20 @@ class RunMaintenanceCommand extends Command
             // 添加 dry-run 选项
             if ($isDryRun) {
                 $options['--dry-run'] = true;
+                unset($options['--fix'], $options['--fix-orphan-files'], $options['--fix-orphan-records'], $options['--export']);
             }
 
             $this->info('----------------------------------------');
             $this->info('['.($index + 1)."/{$totalCommands}] 执行: {$commandName}");
             $this->info('----------------------------------------');
+
+            if ($isDryRun && $commandName === 'maintenance:sync-attachments') {
+                $this->warn('模拟运行：跳过附件同步外部存储检查。');
+                $completedCommands++;
+                $this->newLine();
+
+                continue;
+            }
 
             try {
                 $exitCode = $this->call($commandName, $options);

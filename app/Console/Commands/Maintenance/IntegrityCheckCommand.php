@@ -18,6 +18,7 @@ class IntegrityCheckCommand extends Command
     protected $signature = 'maintenance:integrity-check 
                             {--type=all : 检查类型: all, invoice_amount, paid_amount, invoice_status, payment_allocation}
                             {--fix : 自动修复不一致的数据}
+                            {--dry-run : 模拟修复，不写入数据库}
                             {--store= : 限定门店ID}
                             {--report : 生成详细报告}';
 
@@ -35,6 +36,7 @@ class IntegrityCheckCommand extends Command
     {
         $type = $this->option('type');
         $shouldFix = $this->option('fix');
+        $isDryRun = $this->option('dry-run');
         $storeId = $this->option('store');
         $shouldReport = $this->option('report');
 
@@ -42,6 +44,9 @@ class IntegrityCheckCommand extends Command
         $this->info("检查类型: {$type}");
         if ($storeId) {
             $this->info("限定门店: {$storeId}");
+        }
+        if ($isDryRun) {
+            $this->warn('[模拟运行模式]');
         }
         $this->newLine();
 
@@ -65,7 +70,9 @@ class IntegrityCheckCommand extends Command
         if ($shouldFix) {
             $totalIssues = array_sum(array_column($results, 'count'));
             if ($totalIssues > 0) {
-                if ($this->confirm('确认自动修复以上问题?')) {
+                if ($isDryRun) {
+                    $this->warn('模拟运行：跳过实际修复写入。');
+                } elseif ($this->confirm('确认自动修复以上问题?')) {
                     $this->fixIssues($results, $storeId);
                 }
             }
@@ -336,8 +343,14 @@ class IntegrityCheckCommand extends Command
     protected function fixInvoiceAmount(array $issues): void
     {
         foreach ($issues as $issue) {
-            Invoice::where('id', $issue['invoice_id'])
-                ->update(['amount' => $issue['calculated_amount']]);
+            $invoice = Invoice::find($issue['invoice_id']);
+            if (! $invoice) {
+                continue;
+            }
+
+            $invoice->amount = $issue['calculated_amount'];
+            $invoice->save();
+            $invoice->updateStatus();
         }
     }
 
@@ -347,8 +360,14 @@ class IntegrityCheckCommand extends Command
     protected function fixPaidAmount(array $issues): void
     {
         foreach ($issues as $issue) {
-            Invoice::where('id', $issue['invoice_id'])
-                ->update(['paid_amount' => $issue['calculated_paid_amount']]);
+            $invoice = Invoice::find($issue['invoice_id']);
+            if (! $invoice) {
+                continue;
+            }
+
+            $invoice->paid_amount = $issue['calculated_paid_amount'];
+            $invoice->save();
+            $invoice->updateStatus();
         }
     }
 
@@ -358,8 +377,12 @@ class IntegrityCheckCommand extends Command
     protected function fixInvoiceStatus(array $issues): void
     {
         foreach ($issues as $issue) {
-            Invoice::where('id', $issue['invoice_id'])
-                ->update(['status' => $issue['expected_status']]);
+            $invoice = Invoice::find($issue['invoice_id']);
+            if (! $invoice) {
+                continue;
+            }
+
+            $invoice->updateStatus();
         }
     }
 
@@ -369,8 +392,13 @@ class IntegrityCheckCommand extends Command
     protected function fixPaymentAllocation(array $issues): void
     {
         foreach ($issues as $issue) {
-            Payment::where('id', $issue['payment_id'])
-                ->update(['allocated_amount' => $issue['calculated_allocated']]);
+            $payment = Payment::find($issue['payment_id']);
+            if (! $payment) {
+                continue;
+            }
+
+            $payment->allocated_amount = $issue['calculated_allocated'];
+            $payment->save();
         }
     }
 }
