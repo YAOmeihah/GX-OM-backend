@@ -213,6 +213,46 @@ class PaymentDiscountApiTest extends TestCase
     }
 
     /** @test */
+    public function creating_payment_with_discount_still_returns_loaded_payment_after_store_flow_extraction()
+    {
+        $this->actingAs($this->admin, 'sanctum');
+
+        $response = $this->postJson('/api/payments', [
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 900,
+            'payment_method' => 'cash',
+            'allocations' => [
+                [
+                    'invoice_id' => $this->invoice1->id,
+                    'amount' => 900,
+                ],
+            ],
+            'apply_discount' => true,
+            'discount_data' => [
+                [
+                    'invoice_id' => $this->invoice1->id,
+                    'amount' => 100,
+                    'type' => 'write_off',
+                    'reason' => 'P5 service extraction regression',
+                ],
+            ],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.amount', '900.00')
+            ->assertJsonCount(1, 'data.allocations')
+            ->assertJsonCount(1, 'data.discounts');
+
+        $this->assertDatabaseHas('payments', [
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'amount' => 900,
+        ]);
+    }
+
+    /** @test */
     public function it_rejects_creating_payment_when_allocations_plus_discounts_exceed_payment_amount_gap()
     {
         Sanctum::actingAs($this->storeOwner);
