@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\PermissionGateRegistrar;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -23,6 +24,16 @@ class Permission extends Model
     public function roles(): BelongsToMany
     {
         return $this->belongsToMany(Role::class)->withTimestamps();
+    }
+
+    protected static function booted(): void
+    {
+        $forgetPermissionGateCache = function (): void {
+            app(PermissionGateRegistrar::class)->forgetCache();
+        };
+
+        static::saved($forgetPermissionGateCache);
+        static::deleted($forgetPermissionGateCache);
     }
 
     /**
