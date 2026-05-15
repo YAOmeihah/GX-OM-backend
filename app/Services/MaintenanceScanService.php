@@ -13,7 +13,6 @@ use App\Models\PaymentDiscount;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class MaintenanceScanService
@@ -22,6 +21,8 @@ class MaintenanceScanService
      * 扫描结果缓存 (存储在缓存或会话中)
      */
     protected array $scanCache = [];
+
+    public function __construct(private readonly MaintenanceCleanupService $cleanupService) {}
 
     /**
      * 扫描历史清理数据
@@ -38,6 +39,8 @@ class MaintenanceScanService
         $scanId = Str::uuid()->toString();
 
         $items = collect();
+        $paymentAllocationIds = collect();
+        $paymentDiscountIds = collect();
         $summary = [
             'invoices' => 0,
             'invoice_items' => 0,
@@ -61,8 +64,12 @@ class MaintenanceScanService
             $invoiceIds = $invoiceQuery->pluck('id');
             if ($invoiceIds->isNotEmpty()) {
                 $summary['invoice_items'] = InvoiceItem::whereIn('invoice_id', $invoiceIds)->count();
-                $summary['payment_allocations'] += PaymentAllocation::whereIn('invoice_id', $invoiceIds)->count();
-                $summary['payment_discounts'] += PaymentDiscount::whereIn('invoice_id', $invoiceIds)->count();
+                $paymentAllocationIds = $paymentAllocationIds->merge(
+                    PaymentAllocation::whereIn('invoice_id', $invoiceIds)->pluck('id')
+                );
+                $paymentDiscountIds = $paymentDiscountIds->merge(
+                    PaymentDiscount::whereIn('invoice_id', $invoiceIds)->pluck('id')
+                );
                 $summary['attachments'] += Attachment::where('attachable_type', Invoice::class)
                     ->whereIn('attachable_id', $invoiceIds)->count();
             }
@@ -110,6 +117,12 @@ class MaintenanceScanService
 
             $paymentIds = $paymentQuery->pluck('id');
             if ($paymentIds->isNotEmpty()) {
+                $paymentAllocationIds = $paymentAllocationIds->merge(
+                    PaymentAllocation::whereIn('payment_id', $paymentIds)->pluck('id')
+                );
+                $paymentDiscountIds = $paymentDiscountIds->merge(
+                    PaymentDiscount::whereIn('payment_id', $paymentIds)->pluck('id')
+                );
                 $summary['attachments'] += Attachment::where('attachable_type', Payment::class)
                     ->whereIn('attachable_id', $paymentIds)->count();
             }
@@ -135,6 +148,9 @@ class MaintenanceScanService
                 ]));
             }
         }
+
+        $summary['payment_allocations'] = $paymentAllocationIds->unique()->count();
+        $summary['payment_discounts'] = $paymentDiscountIds->unique()->count();
 
         // 分页处理
         $totalItems = $items->count();
@@ -717,55 +733,14 @@ class MaintenanceScanService
             case 'invoice':
                 $invoice = Invoice::find($item['id']);
                 if ($invoice) {
-                    // 级联删除关联数据，并恢复还款的 allocated_amount
-                    $deleted['invoice_items'] += InvoiceItem::where('invoice_id', $invoice->id)->delete();
-
-                    // 删除分配并恢复还款金额
-                    $allocations = PaymentAllocation::where('invoice_id', $invoice->id)->get();
-                    foreach ($allocations as $alloc) {
-                        $payment = Payment::find($alloc->payment_id);
-                        if ($payment) {
-                            $payment->allocated_amount = max(0, $payment->allocated_amount - $alloc->amount);
-                            $payment->save();
-                        }
-                        $alloc->delete();
-                        $deleted['payment_allocations']++;
-                    }
-
-                    $deleted['payment_discounts'] += PaymentDiscount::where('invoice_id', $invoice->id)->delete();
-
-                    // 删除附件并清理存储文件
-                    $this->deleteAttachments(Invoice::class, $invoice->id, $deleted);
-
-                    $invoice->delete();
-                    $deleted['invoices']++;
+                    $this->cleanupService->deleteInvoice($invoice, $deleted);
                 }
                 break;
 
             case 'payment':
                 $payment = Payment::find($item['id']);
                 if ($payment) {
-                    // 删除分配并恢复账单金额
-                    $allocations = PaymentAllocation::where('payment_id', $payment->id)->get();
-                    foreach ($allocations as $alloc) {
-                        $invoice = Invoice::find($alloc->invoice_id);
-                        if ($invoice) {
-                            $invoice->paid_amount = max(0, $invoice->paid_amount - $alloc->amount);
-                            // 重新计算状态
-                            $invoice->status = $this->calculateExpectedStatus($invoice);
-                            $invoice->save();
-                        }
-                        $alloc->delete();
-                        $deleted['payment_allocations']++;
-                    }
-
-                    $deleted['payment_discounts'] += PaymentDiscount::where('payment_id', $payment->id)->delete();
-
-                    // 删除附件并清理存储文件
-                    $this->deleteAttachments(Payment::class, $payment->id, $deleted);
-
-                    $payment->delete();
-                    $deleted['payments']++;
+                    $this->cleanupService->deletePayment($payment, $deleted);
                 }
                 break;
 
@@ -777,31 +752,14 @@ class MaintenanceScanService
             case 'payment_allocation':
                 $alloc = PaymentAllocation::find($item['id']);
                 if ($alloc) {
-                    // 恢复还款的 allocated_amount
-                    $payment = Payment::find($alloc->payment_id);
-                    if ($payment) {
-                        $payment->allocated_amount = max(0, $payment->allocated_amount - $alloc->amount);
-                        $payment->save();
-                    }
-                    // 恢复账单的 paid_amount
-                    $invoice = Invoice::find($alloc->invoice_id);
-                    if ($invoice) {
-                        $invoice->paid_amount = max(0, $invoice->paid_amount - $alloc->amount);
-                        $invoice->status = $this->calculateExpectedStatus($invoice);
-                        $invoice->save();
-                    }
-                    $alloc->delete();
-                    $deleted['payment_allocations']++;
+                    $this->cleanupService->deletePaymentAllocation($alloc, $deleted);
                 }
                 break;
 
             case 'attachment':
                 $attachment = Attachment::find($item['id']);
                 if ($attachment) {
-                    // 删除存储文件
-                    $this->deleteStorageFile($attachment);
-                    $attachment->delete();
-                    $deleted['attachments']++;
+                    $this->cleanupService->deleteAttachment($attachment, $deleted);
                 }
                 break;
 
@@ -856,40 +814,6 @@ class MaintenanceScanService
                 InvoiceShareToken::where('id', $item['id'])->delete();
                 $deleted['share_tokens'] = ($deleted['share_tokens'] ?? 0) + 1;
                 break;
-        }
-    }
-
-    /**
-     * 删除附件并清理存储文件
-     */
-    protected function deleteAttachments(string $attachableType, int $attachableId, array &$deleted): void
-    {
-        $attachments = Attachment::where('attachable_type', $attachableType)
-            ->where('attachable_id', $attachableId)
-            ->get();
-
-        foreach ($attachments as $attachment) {
-            $this->deleteStorageFile($attachment);
-            $attachment->delete();
-            $deleted['attachments']++;
-        }
-    }
-
-    /**
-     * 删除存储文件
-     */
-    protected function deleteStorageFile(Attachment $attachment): void
-    {
-        try {
-            $disk = $attachment->disk ?? 'local';
-            $path = $attachment->path ?? $attachment->file_path;
-
-            if ($path && Storage::disk($disk)->exists($path)) {
-                Storage::disk($disk)->delete($path);
-            }
-        } catch (\Exception $e) {
-            // 文件删除失败不影响数据库记录删除
-            \Log::warning('Failed to delete attachment file: '.$e->getMessage());
         }
     }
 

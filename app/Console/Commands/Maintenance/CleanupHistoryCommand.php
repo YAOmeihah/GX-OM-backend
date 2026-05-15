@@ -8,6 +8,7 @@ use App\Models\InvoiceItem;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\PaymentDiscount;
+use App\Services\MaintenanceCleanupService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -38,6 +39,11 @@ class CleanupHistoryCommand extends Command
      * 批处理大小
      */
     protected int $batchSize = 100;
+
+    public function __construct(private readonly MaintenanceCleanupService $cleanupService)
+    {
+        parent::__construct();
+    }
 
     /**
      * Execute the console command.
@@ -123,6 +129,9 @@ class CleanupHistoryCommand extends Command
             'total' => 0,
         ];
 
+        $paymentAllocationIds = collect();
+        $paymentDiscountIds = collect();
+
         if (in_array('invoices', $targets)) {
             $invoiceQuery = $this->getCleanableInvoicesQuery($cutoffDate, $excludeStores);
             $stats['invoices'] = $invoiceQuery->count();
@@ -131,8 +140,12 @@ class CleanupHistoryCommand extends Command
             $invoiceIds = $invoiceQuery->pluck('id');
             if ($invoiceIds->isNotEmpty()) {
                 $stats['invoice_items'] = InvoiceItem::whereIn('invoice_id', $invoiceIds)->count();
-                $stats['payment_allocations'] += PaymentAllocation::whereIn('invoice_id', $invoiceIds)->count();
-                $stats['payment_discounts'] += PaymentDiscount::whereIn('invoice_id', $invoiceIds)->count();
+                $paymentAllocationIds = $paymentAllocationIds->merge(
+                    PaymentAllocation::whereIn('invoice_id', $invoiceIds)->pluck('id')
+                );
+                $paymentDiscountIds = $paymentDiscountIds->merge(
+                    PaymentDiscount::whereIn('invoice_id', $invoiceIds)->pluck('id')
+                );
                 $stats['attachments'] += Attachment::where('attachable_type', Invoice::class)
                     ->whereIn('attachable_id', $invoiceIds)->count();
             }
@@ -145,11 +158,19 @@ class CleanupHistoryCommand extends Command
             // 统计关联附件
             $paymentIds = $paymentQuery->pluck('id');
             if ($paymentIds->isNotEmpty()) {
+                $paymentAllocationIds = $paymentAllocationIds->merge(
+                    PaymentAllocation::whereIn('payment_id', $paymentIds)->pluck('id')
+                );
+                $paymentDiscountIds = $paymentDiscountIds->merge(
+                    PaymentDiscount::whereIn('payment_id', $paymentIds)->pluck('id')
+                );
                 $stats['attachments'] += Attachment::where('attachable_type', Payment::class)
                     ->whereIn('attachable_id', $paymentIds)->count();
             }
         }
 
+        $stats['payment_allocations'] = $paymentAllocationIds->unique()->count();
+        $stats['payment_discounts'] = $paymentDiscountIds->unique()->count();
         $stats['total'] = $stats['invoices'] + $stats['payments'];
 
         return $stats;
@@ -178,6 +199,7 @@ class CleanupHistoryCommand extends Command
     {
         $query = Payment::where('created_at', '<', $cutoffDate)
             ->whereRaw('allocated_amount >= amount') // 已完全分配
+            ->whereRaw('allocated_amount > 0') // 确保有真实分配，和扫描条件保持一致
             ->whereNotExists(function ($subQuery) {
                 // 不存在未结清的关联账单
                 $subQuery->select(DB::raw(1))
@@ -287,31 +309,12 @@ class CleanupHistoryCommand extends Command
         $bar->start();
 
         $query->chunkById($this->batchSize, function ($invoices) use (&$deleted, $bar) {
-            $invoiceIds = $invoices->pluck('id');
-
-            DB::transaction(function () use ($invoiceIds) {
-                // 删除关联附件 (会自动清理S3文件，参见Attachment模型的deleting事件)
-                Attachment::where('attachable_type', Invoice::class)
-                    ->whereIn('attachable_id', $invoiceIds)
-                    ->each(function ($attachment) {
-                        $attachment->delete();
-                    });
-
-                // 删除还款分配
-                PaymentAllocation::whereIn('invoice_id', $invoiceIds)->delete();
-
-                // 删除优惠减免
-                PaymentDiscount::whereIn('invoice_id', $invoiceIds)->delete();
-
-                // 删除账单明细
-                InvoiceItem::whereIn('invoice_id', $invoiceIds)->delete();
-
-                // 删除账单
-                Invoice::whereIn('id', $invoiceIds)->delete();
-            });
-
-            $deleted += $invoiceIds->count();
-            $bar->advance($invoiceIds->count());
+            foreach ($invoices as $invoice) {
+                $counters = $this->emptyDeletedCounters();
+                $this->cleanupService->deleteInvoice($invoice, $counters);
+                $deleted++;
+                $bar->advance();
+            }
         });
 
         $bar->finish();
@@ -334,32 +337,29 @@ class CleanupHistoryCommand extends Command
         $bar->start();
 
         $query->chunkById($this->batchSize, function ($payments) use (&$deleted, $bar) {
-            $paymentIds = $payments->pluck('id');
-
-            DB::transaction(function () use ($paymentIds) {
-                // 删除关联附件
-                Attachment::where('attachable_type', Payment::class)
-                    ->whereIn('attachable_id', $paymentIds)
-                    ->each(function ($attachment) {
-                        $attachment->delete();
-                    });
-
-                // 删除还款分配 (账单侧的分配可能已被账单清理删除，这里处理遗留的)
-                PaymentAllocation::whereIn('payment_id', $paymentIds)->delete();
-
-                // 删除优惠减免
-                PaymentDiscount::whereIn('payment_id', $paymentIds)->delete();
-
-                // 删除还款
-                Payment::whereIn('id', $paymentIds)->delete();
-            });
-
-            $deleted += $paymentIds->count();
-            $bar->advance($paymentIds->count());
+            foreach ($payments as $payment) {
+                $counters = $this->emptyDeletedCounters();
+                $this->cleanupService->deletePayment($payment, $counters);
+                $deleted++;
+                $bar->advance();
+            }
         });
 
         $bar->finish();
         $this->newLine();
         $this->info("已删除 {$deleted} 条还款记录");
+    }
+
+    private function emptyDeletedCounters(): array
+    {
+        return [
+            'invoices' => 0,
+            'invoice_items' => 0,
+            'payments' => 0,
+            'payment_allocations' => 0,
+            'payment_discounts' => 0,
+            'attachments' => 0,
+            'audit_logs' => 0,
+        ];
     }
 }

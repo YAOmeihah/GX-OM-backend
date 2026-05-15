@@ -5,8 +5,11 @@ namespace Tests\Feature;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\PaymentDiscount;
 use App\Models\Store;
 use App\Models\User;
+use App\Services\CustomerStatsService;
+use App\Services\MaintenanceScanService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -62,6 +65,44 @@ class MaintenanceCommandsTest extends TestCase
 
         // 确认数据没有被删除
         $this->assertDatabaseHas('invoices', ['id' => $oldInvoice->id]);
+    }
+
+    /**
+     * @test
+     * 测试历史清理命令 - 干运行时不应统计零分配还款
+     */
+    public function cleanup_history_dry_run_ignores_zero_allocated_payments(): void
+    {
+        $createdAt = Carbon::now()->subMonths(4)->toDateTimeString();
+
+        DB::table('payments')->insert([
+            'payment_number' => 'PAY-'.Carbon::now()->format('Ymd').'-P3ZERO',
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'received_by' => $this->user->id,
+            'amount' => 0,
+            'allocated_amount' => 0,
+            'payment_method' => 'cash',
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        $this->artisan('maintenance:cleanup-history', [
+            '--dry-run' => true,
+            '--include' => 'payments',
+        ])
+            ->expectsTable(
+                ['数据类型', '数量'],
+                [
+                    ['账单 (Invoice)', 0],
+                    ['账单明细 (InvoiceItem)', 0],
+                    ['还款 (Payment)', 0],
+                    ['还款分配 (PaymentAllocation)', 0],
+                    ['优惠减免 (PaymentDiscount)', 0],
+                    ['附件 (Attachment)', 0],
+                ]
+            )
+            ->assertExitCode(0);
     }
 
     /**
@@ -366,6 +407,306 @@ class MaintenanceCommandsTest extends TestCase
         }
 
         $this->artisan('maintenance:sync-attachments', ['--check' => true])
+            ->assertExitCode(0);
+    }
+
+    /**
+     * @test
+     * 测试历史清理 - 删除带优惠的还款时应删除优惠、恢复账单状态并同步统计
+     */
+    public function maintenance_payment_cleanup_refreshes_discounted_invoice_and_stats(): void
+    {
+        $createdAt = Carbon::now()->subMonths(4)->toDateTimeString();
+
+        $invoiceId = DB::table('invoices')->insertGetId([
+            'invoice_number' => 'INV-'.Carbon::now()->format('Ymd').'-P3PAY',
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'created_by' => $this->user->id,
+            'amount' => 100,
+            'paid_amount' => 100,
+            'status' => 'paid',
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        $paymentId = DB::table('payments')->insertGetId([
+            'payment_number' => 'PAY-'.Carbon::now()->format('Ymd').'-P3PAY',
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'received_by' => $this->user->id,
+            'amount' => 100,
+            'allocated_amount' => 100,
+            'payment_method' => 'cash',
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        DB::table('payment_allocations')->insert([
+            'payment_id' => $paymentId,
+            'invoice_id' => $invoiceId,
+            'amount' => 100,
+            'allocated_by' => $this->user->id,
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        $discountId = DB::table('payment_discounts')->insertGetId([
+            'payment_id' => $paymentId,
+            'invoice_id' => $invoiceId,
+            'discount_amount' => 10,
+            'discount_type' => PaymentDiscount::TYPE_DISCOUNT,
+            'reason' => 'cleanup test discount',
+            'approved_by' => $this->user->id,
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        app(CustomerStatsService::class)->syncCustomerStoreStats($this->customer->id, $this->store->id);
+
+        $scan = app(MaintenanceScanService::class)->scanHistoryCleanup([
+            'months' => 3,
+            'targets' => ['payments'],
+        ]);
+
+        app(MaintenanceScanService::class)->executeCleanup($scan['scan_id'], [], false, [$paymentId]);
+
+        $this->assertDatabaseMissing('payment_discounts', ['id' => $discountId]);
+        $this->assertDatabaseHas('invoices', [
+            'id' => $invoiceId,
+            'status' => 'unpaid',
+            'paid_amount' => 0,
+        ]);
+        $this->assertDatabaseHas('customer_store_stats', [
+            'customer_id' => $this->customer->id,
+            'store_id' => $this->store->id,
+            'total_debt' => 100,
+        ]);
+    }
+
+    /**
+     * @test
+     * 测试历史清理 - 删除账单时应恢复还款分配金额并同步统计
+     */
+    public function cleanup_history_restores_payment_allocation_amount_when_deleting_invoice(): void
+    {
+        $createdAt = Carbon::now()->subMonths(4)->toDateTimeString();
+        $olderCreatedAt = Carbon::now()->subMonths(5)->toDateTimeString();
+
+        $invoiceId = DB::table('invoices')->insertGetId([
+            'invoice_number' => 'INV-'.Carbon::now()->format('Ymd').'-P3INV',
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'created_by' => $this->user->id,
+            'amount' => 100,
+            'paid_amount' => 100,
+            'status' => 'paid',
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        DB::table('invoices')->insertGetId([
+            'invoice_number' => 'INV-'.Carbon::now()->format('Ymd').'-P3INV-OLD',
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'created_by' => $this->user->id,
+            'amount' => 50,
+            'paid_amount' => 0,
+            'status' => 'unpaid',
+            'created_at' => $olderCreatedAt,
+            'updated_at' => $olderCreatedAt,
+        ]);
+
+        $paymentId = DB::table('payments')->insertGetId([
+            'payment_number' => 'PAY-'.Carbon::now()->format('Ymd').'-P3INV',
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'received_by' => $this->user->id,
+            'amount' => 100,
+            'allocated_amount' => 100,
+            'payment_method' => 'cash',
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        $allocationId = DB::table('payment_allocations')->insertGetId([
+            'payment_id' => $paymentId,
+            'invoice_id' => $invoiceId,
+            'amount' => 100,
+            'allocated_by' => $this->user->id,
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        app(CustomerStatsService::class)->syncCustomerStoreStats($this->customer->id, $this->store->id);
+        $this->assertDatabaseHas('customer_store_stats', [
+            'customer_id' => $this->customer->id,
+            'store_id' => $this->store->id,
+            'total_debt' => 50,
+        ]);
+        $this->assertSame(
+            Carbon::parse($createdAt)->toDateTimeString(),
+            Carbon::parse(DB::table('customer_store_stats')
+                ->where('customer_id', $this->customer->id)
+                ->where('store_id', $this->store->id)
+                ->value('last_transaction_at'))->toDateTimeString()
+        );
+
+        $this->artisan('maintenance:cleanup-history', [
+            '--months' => 3,
+            '--include' => 'invoices',
+            '--force' => true,
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseMissing('payment_allocations', ['id' => $allocationId]);
+        $this->assertDatabaseMissing('invoices', ['id' => $invoiceId]);
+        $this->assertDatabaseHas('payments', [
+            'id' => $paymentId,
+            'allocated_amount' => 0,
+        ]);
+        $this->assertDatabaseHas('customer_store_stats', [
+            'customer_id' => $this->customer->id,
+            'store_id' => $this->store->id,
+            'total_debt' => 50,
+        ]);
+        $this->assertSame(
+            Carbon::parse($olderCreatedAt)->toDateTimeString(),
+            Carbon::parse(DB::table('customer_store_stats')
+                ->where('customer_id', $this->customer->id)
+                ->where('store_id', $this->store->id)
+                ->value('last_transaction_at'))->toDateTimeString()
+        );
+    }
+
+    /**
+     * @test
+     * 测试历史扫描 - 还款摘要应统计分配和优惠
+     */
+    public function history_payment_scan_summary_counts_allocations_and_discounts(): void
+    {
+        $createdAt = Carbon::now()->subMonths(4)->toDateTimeString();
+
+        $invoiceId = DB::table('invoices')->insertGetId([
+            'invoice_number' => 'INV-'.Carbon::now()->format('Ymd').'-P3SUM',
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'created_by' => $this->user->id,
+            'amount' => 100,
+            'paid_amount' => 100,
+            'status' => 'paid',
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        $paymentId = DB::table('payments')->insertGetId([
+            'payment_number' => 'PAY-'.Carbon::now()->format('Ymd').'-P3SUM',
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'received_by' => $this->user->id,
+            'amount' => 100,
+            'allocated_amount' => 100,
+            'payment_method' => 'cash',
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        DB::table('payment_allocations')->insert([
+            'payment_id' => $paymentId,
+            'invoice_id' => $invoiceId,
+            'amount' => 100,
+            'allocated_by' => $this->user->id,
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        DB::table('payment_discounts')->insert([
+            'payment_id' => $paymentId,
+            'invoice_id' => $invoiceId,
+            'discount_amount' => 10,
+            'discount_type' => PaymentDiscount::TYPE_DISCOUNT,
+            'reason' => 'cleanup test discount',
+            'approved_by' => $this->user->id,
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        $scan = app(MaintenanceScanService::class)->scanHistoryCleanup([
+            'months' => 3,
+            'targets' => ['payments'],
+        ]);
+
+        $this->assertSame(1, $scan['summary']['payments']);
+        $this->assertSame(1, $scan['summary']['payment_allocations']);
+        $this->assertSame(1, $scan['summary']['payment_discounts']);
+    }
+
+    /**
+     * @test
+     * 测试历史清理命令 - 同时包含账单和还款时，关联统计不能重复计算
+     */
+    public function cleanup_history_dry_run_dedupes_relation_counts_across_targets(): void
+    {
+        $createdAt = Carbon::now()->subMonths(4)->toDateTimeString();
+
+        $invoiceId = DB::table('invoices')->insertGetId([
+            'invoice_number' => 'INV-'.Carbon::now()->format('Ymd').'-P3DEDUP',
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'created_by' => $this->user->id,
+            'amount' => 100,
+            'paid_amount' => 100,
+            'status' => 'paid',
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        $paymentId = DB::table('payments')->insertGetId([
+            'payment_number' => 'PAY-'.Carbon::now()->format('Ymd').'-P3DEDUP',
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'received_by' => $this->user->id,
+            'amount' => 100,
+            'allocated_amount' => 100,
+            'payment_method' => 'cash',
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        DB::table('payment_allocations')->insert([
+            'payment_id' => $paymentId,
+            'invoice_id' => $invoiceId,
+            'amount' => 100,
+            'allocated_by' => $this->user->id,
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        DB::table('payment_discounts')->insert([
+            'payment_id' => $paymentId,
+            'invoice_id' => $invoiceId,
+            'discount_amount' => 5,
+            'discount_type' => PaymentDiscount::TYPE_DISCOUNT,
+            'reason' => 'dedupe test discount',
+            'approved_by' => $this->user->id,
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+
+        $this->artisan('maintenance:cleanup-history', [
+            '--dry-run' => true,
+            '--include' => 'invoices,payments',
+        ])
+            ->expectsTable(
+                ['数据类型', '数量'],
+                [
+                    ['账单 (Invoice)', 1],
+                    ['账单明细 (InvoiceItem)', 0],
+                    ['还款 (Payment)', 1],
+                    ['还款分配 (PaymentAllocation)', 1],
+                    ['优惠减免 (PaymentDiscount)', 1],
+                    ['附件 (Attachment)', 0],
+                ]
+            )
             ->assertExitCode(0);
     }
 }
