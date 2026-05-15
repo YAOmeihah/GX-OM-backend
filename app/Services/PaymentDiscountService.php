@@ -24,6 +24,13 @@ class DiscountValidationException extends \Exception
 
 class PaymentDiscountService
 {
+    public function __construct(private readonly ?DiscountPermissionService $discountPermissions = null) {}
+
+    private function discountPermissions(): DiscountPermissionService
+    {
+        return $this->discountPermissions ?? app(DiscountPermissionService::class);
+    }
+
     /**
      * 检测还款与总欠款的差额
      */
@@ -426,56 +433,7 @@ class PaymentDiscountService
             return false;
         }
 
-        // 系统管理员可以进行任何优惠减免
-        if ($user->hasRole('admin')) {
-            return true;
-        }
-
-        // 检查用户是否属于该门店
-        if (! $user->stores()->where('store_id', $storeId)->exists()) {
-            return false;
-        }
-
-        // 如果指定了折扣类型，检查特定类型的权限
-        if ($discountType) {
-            $discountConfig = config("payment.discount_types.{$discountType}");
-            if (! $discountConfig) {
-                return false;
-            }
-
-            $allowedRoles = $discountConfig['approval_roles'] ?? [];
-            $hasRole = false;
-
-            foreach ($allowedRoles as $role) {
-                if ($user->hasRole($role)) {
-                    $hasRole = true;
-                    break;
-                }
-            }
-
-            if (! $hasRole) {
-                return false;
-            }
-
-            // 检查金额限制
-            if ($amount !== null) {
-                return \App\Http\Middleware\CheckDiscountPermission::checkDiscountAmount($user, $discountType, $amount);
-            }
-        } else {
-            // 通用权限检查
-            if ($user->hasRole('store_owner')) {
-                return true;
-            }
-
-            // 店员在配置允许的情况下可以进行小额优惠减免
-            if ($user->hasRole('store_staff')) {
-                $staffCanDiscount = config('payment.discount_types.discount.approval_roles', []);
-
-                return in_array('store_staff', $staffCanDiscount);
-            }
-        }
-
-        return true;
+        return $this->discountPermissions()->canApproveDiscount($user, $storeId, $discountType, $amount);
     }
 
     /**
@@ -502,7 +460,7 @@ class PaymentDiscountService
             }
 
             // 检查是否需要额外审批
-            if (\App\Http\Middleware\CheckDiscountPermission::requiresApproval($discountType, $amount)) {
+            if ($this->discountPermissions()->requiresApproval($discountType, $amount)) {
                 // 这里可以添加审批流程的逻辑
                 // 目前简化处理，只有管理员和店长可以进行需要审批的操作
                 if (! $user->hasRole('admin') && ! $user->hasRole('store_owner')) {
