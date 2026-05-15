@@ -1105,4 +1105,3 @@ Expected:
 - Pint exits 0.
 - PHPUnit exits 0. Existing PHPUnit metadata warnings may remain unless Task 6 formatting changes them; warnings are not P5 blockers.
 - Fresh SQLite migrations complete from an empty database.
-

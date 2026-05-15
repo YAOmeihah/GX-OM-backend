@@ -80,4 +80,3 @@ Final verification:
 - `vendor/bin/pint --test`
 - `php artisan test --compact`
 - Fresh SQLite `php artisan migrate:fresh`
-
