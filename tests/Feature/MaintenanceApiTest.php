@@ -226,6 +226,36 @@ class MaintenanceApiTest extends TestCase
         ]);
     }
 
+    public function test_integrity_payment_allocation_invoice_repair_marks_past_due_zero_settled_invoice_overdue(): void
+    {
+        $invoice = Invoice::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'created_by' => $this->admin->id,
+            'amount' => 100,
+            'paid_amount' => 100,
+            'status' => 'paid',
+            'due_date' => Carbon::now()->subDay(),
+        ]);
+
+        $scan = app(MaintenanceScanService::class)->scanIntegrityIssues([
+            'types' => ['payment_allocation'],
+            'page' => 1,
+            'per_page' => 50,
+        ]);
+
+        $this->postJson('/api/maintenance/execute', [
+            'scan_id' => $scan['scan_id'],
+            'selected_keys' => ["payment_allocation_mismatch_invoice:{$invoice->id}"],
+        ])->assertOk();
+
+        $this->assertDatabaseHas('invoices', [
+            'id' => $invoice->id,
+            'paid_amount' => 0,
+            'status' => 'overdue',
+        ]);
+    }
+
     public function test_integrity_amount_repair_recalculates_status_and_customer_stats(): void
     {
         $invoice = Invoice::factory()->create([

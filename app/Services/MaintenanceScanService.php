@@ -797,8 +797,7 @@ class MaintenanceScanService
                         $invoice = Invoice::find($item['id']);
                         if ($invoice && isset($item['expected_value'])) {
                             $invoice->paid_amount = $item['expected_value'];
-                            $invoice->status = $this->calculateExpectedStatus($invoice);
-                            $invoice->save();
+                            $invoice->updateStatus();
                             $deleted['invoices']++;
                         }
                     }
