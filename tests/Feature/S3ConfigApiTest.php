@@ -20,7 +20,7 @@ class S3ConfigApiTest extends TestCase
         $this->actingAsAdmin();
 
         $envPath = base_path('.env');
-        $this->assertFileDoesNotExist($envPath);
+        $envBefore = file_exists($envPath) ? file_get_contents($envPath) : null;
 
         $this->mockSuccessfulS3Connection();
 
@@ -32,9 +32,13 @@ class S3ConfigApiTest extends TestCase
                 'message' => 'S3存储配置更新成功',
             ]);
 
+        $envAfter = file_exists($envPath) ? file_get_contents($envPath) : null;
+
         $this->assertDatabaseHas('runtime_configs', ['key' => 's3-compat']);
         $this->assertDatabaseMissing('runtime_configs', ['value' => 'runtime-secret-key']);
-        $this->assertFileDoesNotExist($envPath);
+        $this->assertSame($envBefore, $envAfter);
+        $this->assertStringNotContainsString('runtime-access-key', $envAfter ?? '');
+        $this->assertStringNotContainsString('runtime-secret-key', $envAfter ?? '');
     }
 
     public function test_s3_connection_test_hides_raw_exception_details(): void
