@@ -1,0 +1,77 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+    - vendor/nesbot/carbon/extension.neon
+
+parameters:
+    paths:
+        - app
+        - routes
+        - config
+        - database/factories
+        - database/seeders
+
+    level: 0
+
+    excludePaths:
+        - vendor
+        - storage
+        - bootstrap/cache
+
+    ignoreErrors:
+        -
+            message: "#^Relation 'attachments' is not found in App\\\\Models\\\\Invoice model\\.$#"
+            path: app/Http/Controllers/InvoiceController.php
+        -
+            message: "#^Relation 'attachments' is not found in App\\\\Models\\\\Invoice model\\.$#"
+            path: app/Http/Controllers/PublicInvoiceController.php
+        -
+            message: "#^Relation 'attachments' is not found in App\\\\Models\\\\Payment model\\.$#"
+            path: app/Http/Controllers/PaymentController.php
+        -
+            message: "#^Relation 'discounts' is not found in App\\\\Models\\\\Invoice model\\.$#"
+            path: app/Http/Controllers/CustomerController.php
+        -
+            message: "#^Relation 'discounts' is not found in App\\\\Models\\\\Invoice model\\.$#"
+            path: app/Http/Controllers/InvoiceController.php
+        -
+            message: "#^Relation 'discounts' is not found in App\\\\Models\\\\Invoice model\\.$#"
+            path: app/Http/Controllers/PublicInvoiceController.php
+        -
+            message: "#^Relation 'discounts' is not found in App\\\\Models\\\\Invoice model\\.$#"
+            path: app/Services/AutoAllocationService.php
+        -
+            message: "#^Relation 'discounts' is not found in App\\\\Models\\\\Invoice model\\.$#"
+            path: app/Services/PaymentDiscountService.php
+        -
+            message: "#^Relation 'discounts' is not found in App\\\\Models\\\\Payment model\\.$#"
+            path: app/Http/Controllers/PaymentController.php
+        -
+            message: "#^Class App\\\\Http\\\\Middleware\\\\TrustProxies not found\\.$#"
+            path: app/Http/Kernel.php
+        -
+            message: "#^Class App\\\\Http\\\\Middleware\\\\PreventRequestsDuringMaintenance not found\\.$#"
+            path: app/Http/Kernel.php
+        -
+            message: "#^Class App\\\\Http\\\\Middleware\\\\TrimStrings not found\\.$#"
+            path: app/Http/Kernel.php
+        -
+            message: "#^Class App\\\\Http\\\\Middleware\\\\EncryptCookies not found\\.$#"
+            path: app/Http/Kernel.php
+        -
+            message: "#^Class App\\\\Http\\\\Middleware\\\\VerifyCsrfToken not found\\.$#"
+            path: app/Http/Kernel.php
+        -
+            message: "#^Class App\\\\Http\\\\Middleware\\\\Authenticate not found\\.$#"
+            path: app/Http/Kernel.php
+        -
+            message: "#^Class App\\\\Http\\\\Middleware\\\\RedirectIfAuthenticated not found\\.$#"
+            path: app/Http/Kernel.php
+        -
+            message: "#^Class App\\\\Http\\\\Middleware\\\\ValidateSignature not found\\.$#"
+            path: app/Http/Kernel.php
+        -
+            message: "#^Called 'env' outside of the config directory which returns null when the config is cached, use 'config'\\.$#"
+            path: app/Services/WechatService.php
+        -
+            message: "#^Undefined variable: \\$this$#"
+            path: routes/console.php

@@ -19,7 +19,7 @@
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
-        "knuckleswtf/scribe": "^4.39",
+        "larastan/larastan": "^3.0",
         "laravel/pail": "^1.1",
         "laravel/pint": "^1.13",
         "laravel/sail": "^1.26",
@@ -58,7 +58,12 @@
         "dev": [
             "Composer\\Config::disableProcessTimeout",
             "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1\" \"npm run dev\" --names='server,queue,vite'"
-        ]
+        ],
+        "test": "@php artisan test --compact",
+        "pint:test": "pint --test",
+        "analyse": "phpstan analyse --memory-limit=1G",
+        "audit:security": "composer audit --abandoned=fail --format=json",
+        "platform:check": "composer check-platform-reqs"
     },
     "extra": {
         "laravel": {

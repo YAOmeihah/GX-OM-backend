@@ -7,16 +7,15 @@ use App\Http\Requests\Payment\AllocatePaymentRequest;
 use App\Http\Requests\Payment\ApplyDiscountRequest;
 use App\Http\Requests\Payment\AutoAllocateRequest;
 use App\Http\Requests\Payment\StorePaymentRequest;
-use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Payment;
-use App\Models\Store;
 use App\Services\AutoAllocationService;
+use App\Services\DiscountValidationException;
+use App\Services\PaymentCreationService;
 use App\Services\PaymentDiscountService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 /**
  * @group 还款管理
@@ -25,6 +24,12 @@ use Illuminate\Support\Str;
  */
 class PaymentController extends ApiController
 {
+    public function __construct(
+        private readonly AutoAllocationService $allocations,
+        private readonly PaymentCreationService $paymentCreation,
+        private readonly PaymentDiscountService $discounts,
+    ) {}
+
     /**
      * 获取还款列表
      *
@@ -235,161 +240,17 @@ class PaymentController extends ApiController
         // 权限检查和验证已在 StorePaymentRequest 中完成
         $validated = $request->validated();
 
-        // 验证客户是否有未付清的账单
-        $customer = Customer::findOrFail($validated['customer_id']);
-        if ($customer->unpaidInvoices()->count() === 0) {
-            return $this->errorResponse('该客户没有未付清的账单', 422);
-        }
-
-        // 生成唯一还款号
-        $store = Store::find($validated['store_id']);
-        $paymentNumber = 'PAY-'.$store->code.'-'.date('Ymd').'-'.Str::random(5);
-
-        DB::beginTransaction();
-
         try {
-            // 创建还款记录
-            $payment = Payment::create([
-                'payment_number' => $paymentNumber,
-                'store_id' => $validated['store_id'],
-                'customer_id' => $validated['customer_id'],
-                'received_by' => $user->id,
-                'amount' => $validated['amount'],
-                'allocated_amount' => 0,  // 显式设置初始值
-                // 'payment_date' => $validated['payment_date'], - removed
-                'payment_method' => $validated['payment_method'],
-                'reference_number' => $validated['reference_number'] ?? null,
-                'remarks' => $validated['remarks'] ?? null,
-            ]);
+            $payment = $this->paymentCreation->create($validated, $user);
 
-            // 检查是否需要处理优惠抹零
-            if (! empty($validated['apply_discount']) && ! empty($validated['discount_data'])) {
-                $discountService = new PaymentDiscountService;
-                $totalAllocated = collect($validated['allocations'] ?? [])->sum('amount');
-                $totalDiscount = collect($validated['discount_data'])->sum('amount');
-                $totalDebt = $customer->unpaidInvoices()->with('discounts')->get()->sum('actual_remaining_amount');
-                $intendedGap = \App\Helpers\MoneyHelper::subtract($totalDebt, $validated['amount']);
+            $message = ! empty($validated['apply_discount']) && ! empty($validated['discount_data'])
+                ? '还款记录创建成功，已处理优惠抹零'
+                : '还款记录创建成功';
 
-                if (\App\Helpers\MoneyHelper::isGreaterThan(
-                    \App\Helpers\MoneyHelper::add($totalAllocated, $totalDiscount),
-                    \App\Helpers\MoneyHelper::add($validated['amount'], max(0, $intendedGap))
-                )) {
-                    throw new \Exception('分配金额与优惠减免总额超过了还款金额和差额');
-                }
-
-                $discountService->validateDiscountRequest(
-                    $payment,
-                    $validated['discount_data'],
-                    $user->id,
-                    'create_payment',
-                    $validated['allocations'] ?? []
-                );
-
-                // 先处理前端传来的手动分配（如果有）
-                if (! empty($validated['allocations'])) {
-                    foreach ($validated['allocations'] as $allocationData) {
-                        $invoice = Invoice::findOrFail($allocationData['invoice_id']);
-
-                        // 验证账单是否属于同一客户和门店
-                        if ($invoice->customer_id != $validated['customer_id'] || $invoice->store_id != $validated['store_id']) {
-                            throw new \Exception('账单与还款的客户或门店不匹配');
-                        }
-
-                        // 验证分配金额不超过账单剩余未付金额
-                        $invoice->loadMissing('discounts');
-                        $remainingAmount = $invoice->actual_remaining_amount;
-                        if ($allocationData['amount'] > $remainingAmount) {
-                            throw new \Exception("账单 {$invoice->invoice_number} 的分配金额超过了剩余未付金额");
-                        }
-
-                        // 创建分配记录
-                        $payment->allocateToInvoice($invoice, $allocationData['amount'], $user->id);
-                    }
-                }
-
-                // 然后只创建减免记录（不再自动分配）
-                foreach ($validated['discount_data'] as $discountItem) {
-                    $invoice = Invoice::findOrFail($discountItem['invoice_id']);
-
-                    if ($invoice->customer_id != $validated['customer_id'] || $invoice->store_id != $validated['store_id']) {
-                        throw new \Exception('账单与还款的客户或门店不匹配');
-                    }
-
-                    $payment->createDiscount(
-                        $invoice,
-                        $discountItem['amount'],
-                        $discountItem['type'] ?? 'write_off',
-                        $discountItem['reason'] ?? '优惠抹零',
-                        $user->id
-                    );
-
-                    // 更新账单状态
-                    $invoice->refresh();
-                    $invoice->updateStatus();
-                }
-
-                DB::commit();
-
-                // 加载关联数据
-                $payment->load(['allocations.invoice', 'discounts.invoice', 'customer', 'store', 'receivedBy:id,name']);
-
-                // 确保 received_by 返回的是对象
-                if ($payment->relationLoaded('receivedBy')) {
-                    $payment->setAttribute('received_by', $payment->receivedBy);
-                }
-
-                // 统一返回格式，直接返回 payment 对象
-                return $this->successResponse($payment, '还款记录创建成功，已处理优惠抹零', 201);
-            }
-
-            // 传统的手动分配处理
-            $totalAllocated = 0;
-
-            if (! empty($validated['allocations'])) {
-                foreach ($validated['allocations'] as $allocationData) {
-                    $invoice = Invoice::findOrFail($allocationData['invoice_id']);
-
-                    // 验证账单是否属于同一客户和门店
-                    if ($invoice->customer_id != $validated['customer_id'] || $invoice->store_id != $validated['store_id']) {
-                        throw new \Exception('账单与还款的客户或门店不匹配');
-                    }
-
-                    // 验证分配金额不超过账单剩余未付金额
-                    $invoice->loadMissing('discounts');
-                    $remainingAmount = $invoice->actual_remaining_amount;
-                    if ($allocationData['amount'] > $remainingAmount) {
-                        throw new \Exception("账单 {$invoice->invoice_number} 的分配金额超过了剩余未付金额");
-                    }
-
-                    // 创建分配记录
-                    $payment->allocateToInvoice($invoice, $allocationData['amount'], $user->id);
-                    $totalAllocated += $allocationData['amount'];
-                }
-            }
-
-            // 验证总分配金额不超过还款金额
-            if ($totalAllocated > $validated['amount']) {
-                throw new \Exception('分配总金额超过了还款金额');
-            }
-
-            DB::commit();
-
-            // 加载关联数据
-            $payment->load(['allocations.invoice', 'customer', 'store', 'receivedBy:id,name']);
-
-            // 确保 received_by 返回的是对象而不是 ID，以匹配 DTO 定义
-            if ($payment->relationLoaded('receivedBy')) {
-                $payment->setAttribute('received_by', $payment->receivedBy);
-            }
-
-            return $this->successResponse($payment, '还款记录创建成功', 201);
-        } catch (\App\Services\DiscountValidationException $e) {
-            DB::rollBack();
-
+            return $this->successResponse($payment, $message, 201);
+        } catch (DiscountValidationException $e) {
             return $this->errorResponse($e->getMessage(), $e->statusCode());
         } catch (\Exception $e) {
-            DB::rollBack();
-
             return $this->errorResponse($e->getMessage(), 422);
         }
     }
@@ -858,7 +719,7 @@ class PaymentController extends ApiController
             $request->input('strategy', 'oldest_first')
         );
 
-        $allocationService = new AutoAllocationService;
+        $allocationService = $this->allocations;
 
         // 获取包含优惠减免的分配建议
         $includeDiscount = $request->input('include_discount', true);
@@ -955,7 +816,7 @@ class PaymentController extends ApiController
             $validated['strategy'] ?? 'oldest_first'
         );
 
-        $allocationService = new AutoAllocationService;
+        $allocationService = $this->allocations;
 
         // 检查超额还款
         $excessInfo = $allocationService->detectExcessPayment($payment);
@@ -1103,7 +964,7 @@ class PaymentController extends ApiController
             $validated['strategy'] ?? 'oldest_first'
         );
 
-        $allocationService = new AutoAllocationService;
+        $allocationService = $this->allocations;
 
         try {
             $results = $allocationService->batchAutoAllocate($validated['payment_ids'], $strategy);
@@ -1185,7 +1046,7 @@ class PaymentController extends ApiController
         // 使用 Policy 进行权限检查
         $this->authorize('detectGap', $payment);
 
-        $discountService = new PaymentDiscountService;
+        $discountService = $this->discounts;
         $gapInfo = $discountService->detectPaymentGap($payment);
 
         return $this->successResponse([
@@ -1266,7 +1127,7 @@ class PaymentController extends ApiController
         // 权限检查和验证已在 ApplyDiscountRequest 中完成
         $validated = $request->validated();
 
-        $discountService = new PaymentDiscountService;
+        $discountService = $this->discounts;
 
         try {
             $discountService->validateDiscountRequest($payment, $validated['discount_data'], Auth::id(), 'apply_discount');
@@ -1381,7 +1242,7 @@ class PaymentController extends ApiController
             $dateRange = [$validated['start_date'], $validated['end_date']];
         }
 
-        $discountService = new PaymentDiscountService;
+        $discountService = $this->discounts;
         $statistics = $discountService->getDiscountStatistics($storeId, $dateRange);
 
         return $this->successResponse($statistics, '优惠减免统计获取成功');
