@@ -768,7 +768,7 @@ class MaintenanceScanService
                 $invoice = Invoice::find($item['id']);
                 if ($invoice && isset($item['expected_value'])) {
                     $invoice->amount = $item['expected_value'];
-                    $invoice->save();
+                    $invoice->updateStatus();
                     // 使用 invoices 计数器标记已修复（更好的方式是添加 'fixed' 计数器）
                     $deleted['invoices']++;
                 }
@@ -901,7 +901,13 @@ class MaintenanceScanService
 
     private function addSelectionKey(array $item): array
     {
-        $item['selection_key'] = "{$item['type']}:{$item['id']}";
+        $selectionType = $item['type'];
+
+        if ($selectionType === 'payment_allocation_mismatch' && isset($item['entity_type'])) {
+            $selectionType = "{$selectionType}_{$item['entity_type']}";
+        }
+
+        $item['selection_key'] = "{$selectionType}:{$item['id']}";
 
         return $item;
     }

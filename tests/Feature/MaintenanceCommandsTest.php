@@ -633,8 +633,9 @@ class MaintenanceCommandsTest extends TestCase
             'targets' => ['payments'],
         ]);
 
-        app(MaintenanceScanService::class)->executeCleanup($scan['scan_id'], [], false, [$paymentId]);
+        $result = app(MaintenanceScanService::class)->executeCleanup($scan['scan_id'], [], false, [$paymentId]);
 
+        $this->assertSame(1, $result['deleted']['payment_allocations']);
         $this->assertDatabaseMissing('payment_discounts', ['id' => $discountId]);
         $this->assertDatabaseHas('invoices', [
             'id' => $invoiceId,

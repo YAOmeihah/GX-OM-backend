@@ -55,7 +55,7 @@ class MaintenanceCleanupService
                 ->map(fn ($invoiceId) => (int) $invoiceId)
                 ->all();
 
-            $payment->revokeAllAllocations(0);
+            $deleted['payment_allocations'] += $payment->revokeAllAllocations(0);
 
             $discountInvoiceIds = PaymentDiscount::where('payment_id', $payment->id)
                 ->pluck('invoice_id')

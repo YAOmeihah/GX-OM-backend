@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\MaintenanceScanService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -175,6 +176,108 @@ class MaintenanceApiTest extends TestCase
 
         $this->assertDatabaseMissing('audit_logs', ['id' => $selectedLog->id]);
         $this->assertDatabaseHas('audit_logs', ['id' => $unselectedLog->id]);
+    }
+
+    public function test_integrity_allocation_selected_keys_distinguish_payment_and_invoice_mismatches(): void
+    {
+        $payment = Payment::factory()->create([
+            'id' => 1,
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'received_by' => $this->admin->id,
+            'amount' => 100,
+            'allocated_amount' => 100,
+        ]);
+
+        $invoice = Invoice::factory()->create([
+            'id' => 1,
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'created_by' => $this->admin->id,
+            'amount' => 100,
+            'paid_amount' => 100,
+            'status' => 'paid',
+        ]);
+
+        $scan = app(MaintenanceScanService::class)->scanIntegrityIssues([
+            'types' => ['payment_allocation'],
+            'page' => 1,
+            'per_page' => 50,
+        ]);
+
+        $selectionKeys = collect($scan['items'])->pluck('selection_key')->all();
+
+        $this->assertContains("payment_allocation_mismatch_payment:{$payment->id}", $selectionKeys);
+        $this->assertContains("payment_allocation_mismatch_invoice:{$invoice->id}", $selectionKeys);
+        $this->assertCount(2, array_unique($selectionKeys));
+
+        $this->postJson('/api/maintenance/execute', [
+            'scan_id' => $scan['scan_id'],
+            'selected_keys' => ["payment_allocation_mismatch_invoice:{$invoice->id}"],
+        ])->assertOk();
+
+        $this->assertDatabaseHas('payments', [
+            'id' => $payment->id,
+            'allocated_amount' => 100,
+        ]);
+        $this->assertDatabaseHas('invoices', [
+            'id' => $invoice->id,
+            'paid_amount' => 0,
+        ]);
+    }
+
+    public function test_integrity_amount_repair_recalculates_status_and_customer_stats(): void
+    {
+        $invoice = Invoice::factory()->create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'created_by' => $this->admin->id,
+            'amount' => 100,
+            'paid_amount' => 100,
+            'status' => 'paid',
+        ]);
+
+        DB::table('invoice_items')->insert([
+            'invoice_id' => $invoice->id,
+            'line_uid' => (string) \Illuminate\Support\Str::uuid(),
+            'item_name' => 'API repair item',
+            'quantity' => 1,
+            'unit_price' => 250,
+            'subtotal' => 250,
+            'sort_order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        app(\App\Services\CustomerStatsService::class)->syncCustomerStoreStats($this->customer->id, $this->store->id);
+        $this->assertDatabaseHas('customer_store_stats', [
+            'customer_id' => $this->customer->id,
+            'store_id' => $this->store->id,
+            'total_debt' => 0,
+        ]);
+
+        $scan = app(MaintenanceScanService::class)->scanIntegrityIssues([
+            'types' => ['invoice_amount'],
+            'page' => 1,
+            'per_page' => 50,
+        ]);
+
+        $this->postJson('/api/maintenance/execute', [
+            'scan_id' => $scan['scan_id'],
+            'selected_keys' => ["invoice_amount_mismatch:{$invoice->id}"],
+        ])->assertOk();
+
+        $this->assertDatabaseHas('invoices', [
+            'id' => $invoice->id,
+            'amount' => 250,
+            'paid_amount' => 100,
+            'status' => 'partially_paid',
+        ]);
+        $this->assertDatabaseHas('customer_store_stats', [
+            'customer_id' => $this->customer->id,
+            'store_id' => $this->store->id,
+            'total_debt' => 150,
+        ]);
     }
 
     public function test_expired_token_scan_caches_all_items_for_execute_all(): void
