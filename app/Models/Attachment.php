@@ -40,17 +40,27 @@ class Attachment extends Model
     {
         parent::boot();
 
-        // 删除附件记录时，同时删除存储的文件
+        // 删除附件记录时，同时删除未被其他附件引用的存储文件
         static::deleting(function (Attachment $attachment) {
-            if (! empty($attachment->file_path)) {
-                try {
-                    Storage::disk('s3-compat')->delete($attachment->file_path);
-                } catch (\Exception $e) {
-                    // 记录日志但不阻止删除操作
-                    \Log::warning("Failed to delete attachment file: {$attachment->file_path}", [
-                        'error' => $e->getMessage(),
-                    ]);
-                }
+            if (empty($attachment->file_path)) {
+                return;
+            }
+
+            $hasOtherReferences = static::where('file_path', $attachment->file_path)
+                ->whereKeyNot($attachment->getKey())
+                ->exists();
+
+            if ($hasOtherReferences) {
+                return;
+            }
+
+            try {
+                Storage::disk(config('app.attachment_disk', 's3-compat'))->delete($attachment->file_path);
+            } catch (\Exception $e) {
+                // 记录日志但不阻止删除操作
+                \Log::warning("Failed to delete attachment file: {$attachment->file_path}", [
+                    'error' => $e->getMessage(),
+                ]);
             }
         });
     }

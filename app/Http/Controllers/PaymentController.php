@@ -574,7 +574,16 @@ class PaymentController extends ApiController
         } catch (\InvalidArgumentException $e) {
             return $this->errorResponse($e->getMessage(), 422);
         } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
+            \Log::error('还款分配失败', [
+                'user_id' => Auth::id(),
+                'payment_id' => $payment->id ?? null,
+                'invoice_id' => $validated['invoice_id'] ?? null,
+                'exception' => get_class($e),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return $this->errorResponse('还款操作失败', 500);
         }
     }
 
@@ -698,7 +707,16 @@ class PaymentController extends ApiController
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return $this->errorResponse('批量分配失败：'.$e->getMessage(), 500);
+            \Log::error('批量分配失败', [
+                'user_id' => Auth::id(),
+                'payment_id' => $payment->id ?? null,
+                'allocations' => $allocations ?? [],
+                'exception' => get_class($e),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return $this->errorResponse('批量分配失败', 500);
         }
     }
 
@@ -992,7 +1010,17 @@ class PaymentController extends ApiController
         } catch (\InvalidArgumentException $e) {
             return $this->errorResponse('自动分配失败：'.$e->getMessage(), 422);
         } catch (\Exception $e) {
-            return $this->errorResponse('自动分配失败：'.$e->getMessage(), 500);
+            \Log::error('自动分配失败', [
+                'user_id' => Auth::id(),
+                'payment_id' => $payment->id ?? null,
+                'strategy' => $validated['strategy'] ?? null,
+                'include_discount' => $validated['include_discount'] ?? null,
+                'exception' => get_class($e),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return $this->errorResponse('自动分配失败', 500);
         }
     }
 
@@ -1094,7 +1122,16 @@ class PaymentController extends ApiController
             ], "批量自动分配完成，成功处理 {$successCount}/{$totalCount} 笔还款");
 
         } catch (\Exception $e) {
-            return $this->errorResponse('批量自动分配失败：'.$e->getMessage(), 500);
+            \Log::error('批量自动分配失败', [
+                'user_id' => Auth::id(),
+                'payment_ids' => $validated['payment_ids'] ?? [],
+                'store_id' => $validated['store_id'] ?? null,
+                'exception' => get_class($e),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return $this->errorResponse('批量自动分配失败', 500);
         }
     }
 

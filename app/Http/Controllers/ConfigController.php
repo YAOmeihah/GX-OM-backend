@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\S3RuntimeConfigService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -79,13 +80,7 @@ class ConfigController extends ApiController
                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 'text/plain',
             ],
-            's3_config' => [
-                'region' => config('filesystems.disks.s3-compat.region'),
-                'bucket' => config('filesystems.disks.s3-compat.bucket'),
-                'endpoint' => config('filesystems.disks.s3-compat.endpoint'),
-                'access_key' => config('filesystems.disks.s3-compat.key') ? '已配置' : '未配置',
-                'secret_key' => config('filesystems.disks.s3-compat.secret') ? '已配置' : '未配置',
-            ],
+            's3_config' => app(S3RuntimeConfigService::class)->maskedConfig(),
         ];
 
         return $this->successResponse($config);
@@ -114,11 +109,11 @@ class ConfigController extends ApiController
      * }
      * @response 422 scenario="连接测试失败" {
      *   "success": false,
-     *   "message": "配置测试失败：Connection refused"
+     *   "message": "配置测试失败"
      * }
      * @response 500 scenario="更新失败" {
      *   "success": false,
-     *   "message": "配置更新失败：..."
+     *   "message": "配置更新失败"
      * }
      * @response 401 scenario="未认证" {
      *   "success": false,
@@ -143,33 +138,30 @@ class ConfigController extends ApiController
         ]);
 
         try {
-            // 更新运行时配置
-            Config::set('filesystems.disks.s3-compat.key', $validated['access_key']);
-            Config::set('filesystems.disks.s3-compat.secret', $validated['secret_key']);
-            Config::set('filesystems.disks.s3-compat.region', $validated['region']);
-            Config::set('filesystems.disks.s3-compat.bucket', $validated['bucket']);
-            Config::set('filesystems.disks.s3-compat.endpoint', $validated['endpoint']);
+            $configService = app(S3RuntimeConfigService::class);
+            $candidateConfig = $configService->effectiveConfig($validated);
 
-            // 测试连接
+            $configService->apply($candidateConfig);
             $testResult = $this->testS3ConnectionInternal();
 
             if (! $testResult['success']) {
-                return $this->errorResponse('配置测试失败：'.$testResult['message'], 422);
+                return $this->errorResponse('配置测试失败', 422);
             }
 
-            // 更新环境文件
-            $this->updateEnvFile([
-                'S3_ACCESS_KEY' => $validated['access_key'],
-                'S3_SECRET_KEY' => $validated['secret_key'],
-                'S3_REGION' => $validated['region'],
-                'S3_BUCKET' => $validated['bucket'],
-                'S3_ENDPOINT' => $validated['endpoint'],
-            ]);
+            $configService->persist($candidateConfig);
+            $configService->apply($candidateConfig);
 
             return $this->successResponse(null, 'S3存储配置更新成功');
 
         } catch (\Exception $e) {
-            return $this->errorResponse('配置更新失败：'.$e->getMessage(), 500);
+            Log::error('S3配置更新失败', [
+                'user_id' => auth()->id(),
+                'exception' => get_class($e),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return $this->errorResponse('配置更新失败', 500);
         }
     }
 
@@ -191,7 +183,7 @@ class ConfigController extends ApiController
      * }
      * @response 422 scenario="连接失败" {
      *   "success": false,
-     *   "message": "连接测试失败：Connection refused"
+     *   "message": "配置测试失败"
      * }
      * @response 401 scenario="未认证" {
      *   "success": false,
@@ -208,6 +200,7 @@ class ConfigController extends ApiController
         }
 
         try {
+            app(S3RuntimeConfigService::class)->apply();
             $disk = Storage::disk('s3-compat');
 
             // 尝试列出存储桶内容来测试连接
@@ -216,7 +209,13 @@ class ConfigController extends ApiController
             return $this->successResponse(['status' => 'connected'], 'S3存储连接测试成功');
 
         } catch (\Exception $e) {
-            return $this->errorResponse('连接测试失败：'.$e->getMessage(), 422);
+            Log::warning('S3连接测试失败', [
+                'user_id' => auth()->id(),
+                'exception' => get_class($e),
+                'error' => $e->getMessage(),
+            ]);
+
+            return $this->errorResponse('配置测试失败', 422);
         }
     }
 
@@ -231,34 +230,13 @@ class ConfigController extends ApiController
 
             return ['success' => true, 'message' => '连接成功'];
         } catch (\Exception $e) {
-            return ['success' => false, 'message' => $e->getMessage()];
+            Log::warning('S3配置测试失败', [
+                'user_id' => auth()->id(),
+                'exception' => get_class($e),
+                'error' => $e->getMessage(),
+            ]);
+
+            return ['success' => false, 'message' => '配置测试失败'];
         }
-    }
-
-    /**
-     * 更新环境文件
-     */
-    private function updateEnvFile(array $data): void
-    {
-        $envFile = base_path('.env');
-
-        if (! file_exists($envFile)) {
-            throw new \RuntimeException('.env文件不存在');
-        }
-
-        $envContent = file_get_contents($envFile);
-
-        foreach ($data as $key => $value) {
-            $pattern = "/^{$key}=.*$/m";
-            $replacement = "{$key}={$value}";
-
-            if (preg_match($pattern, $envContent)) {
-                $envContent = preg_replace($pattern, $replacement, $envContent);
-            } else {
-                $envContent .= "\n{$replacement}";
-            }
-        }
-
-        file_put_contents($envFile, $envContent);
     }
 }

@@ -3,10 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Attachment;
+use App\Models\AttachmentUploadIntent;
 use App\Models\Invoice;
 use App\Models\Payment;
+use App\Services\S3RuntimeConfigService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -81,7 +84,7 @@ class AttachmentController extends ApiController
      * }
      * @response 500 scenario="生成失败" {
      *   "success": false,
-     *   "message": "预签名URL生成失败：..."
+     *   "message": "预签名URL生成失败"
      * }
      * @response 401 scenario="未认证" {
      *   "success": false,
@@ -120,12 +123,27 @@ class AttachmentController extends ApiController
         try {
             // 按缤纷云官方示例生成预签名URL
             $presignedUrl = $this->generateS3PresignedUrl($filePath);
+            $expiresIn = config('app.attachment_presigned_url_expires', 20) * 60;
+
+            AttachmentUploadIntent::updateOrCreate(
+                ['file_path' => $filePath],
+                [
+                    'attachable_type' => $this->getModelClass($validated['attachable_type']),
+                    'attachable_id' => $validated['attachable_id'],
+                    'original_filename' => $validated['filename'],
+                    'file_size' => $validated['file_size'],
+                    'mime_type' => $validated['mime_type'],
+                    'uploaded_by' => Auth::id(),
+                    'expires_at' => now()->addSeconds($expiresIn),
+                    'consumed_at' => null,
+                ]
+            );
 
             return $this->successResponse([
                 'upload_url' => $presignedUrl,
                 'file_path' => $filePath,
                 'original_mime_type' => $validated['mime_type'],
-                'expires_in' => config('app.attachment_presigned_url_expires', 20) * 60,
+                'expires_in' => $expiresIn,
                 'upload_instructions' => [
                     'method' => 'PUT',
                     'content_type' => null, // 关键：设置为null，让浏览器不设置Content-Type头
@@ -134,7 +152,16 @@ class AttachmentController extends ApiController
             ], '预签名URL生成成功');
 
         } catch (\Exception $e) {
-            return $this->errorResponse('预签名URL生成失败：'.$e->getMessage(), 500);
+            Log::error('预签名URL生成失败', [
+                'user_id' => Auth::id(),
+                'attachable_type' => $validated['attachable_type'],
+                'attachable_id' => $validated['attachable_id'],
+                'exception' => get_class($e),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return $this->errorResponse('预签名URL生成失败', 500);
         }
     }
 
@@ -182,11 +209,11 @@ class AttachmentController extends ApiController
      * }
      * @response 422 scenario="文件验证失败" {
      *   "success": false,
-     *   "message": "文件上传验证失败：文件不存在于对象存储中"
+     *   "message": "文件上传验证失败"
      * }
      * @response 500 scenario="保存失败" {
      *   "success": false,
-     *   "message": "附件记录保存失败：..."
+     *   "message": "附件记录保存失败"
      * }
      * @response 401 scenario="未认证" {
      *   "success": false,
@@ -213,7 +240,7 @@ class AttachmentController extends ApiController
         }
 
         if (! $this->canAccessEntity($entity)) {
-            \Log::warning('附件上传确认失败：权限不足', [
+            Log::warning('附件上传确认失败：权限不足', [
                 'attachable_type' => $validated['attachable_type'],
                 'attachable_id' => $validated['attachable_id'],
                 'user_id' => Auth::id(),
@@ -223,34 +250,80 @@ class AttachmentController extends ApiController
             return $this->errorResponse('权限不足', 403);
         }
 
+        $modelClass = $this->getModelClass($validated['attachable_type']);
+        $intent = AttachmentUploadIntent::query()
+            ->where('attachable_type', $modelClass)
+            ->where('attachable_id', $validated['attachable_id'])
+            ->where('file_path', $validated['file_path'])
+            ->where('original_filename', $validated['original_filename'])
+            ->where('file_size', $validated['file_size'])
+            ->where('mime_type', $validated['mime_type'])
+            ->where('uploaded_by', Auth::id())
+            ->whereNull('consumed_at')
+            ->first();
+
+        if (! $intent || $intent->isExpired()) {
+            Log::warning('附件上传确认失败：上传凭证无效或已过期', [
+                'file_path' => $validated['file_path'],
+                'user_id' => Auth::id(),
+                'attachable_type' => $modelClass,
+                'attachable_id' => $validated['attachable_id'],
+            ]);
+
+            return $this->errorResponse('上传凭证无效或已过期', 422);
+        }
+
+        if (Attachment::where('file_path', $validated['file_path'])->exists()) {
+            return $this->errorResponse('附件文件已确认', 422);
+        }
+
         // 验证文件是否真的上传到了对象存储
         $fileVerificationResult = $this->verifyFileExistsWithDetails($validated['file_path']);
         if (! $fileVerificationResult['exists']) {
-            \Log::error('附件上传确认失败：文件验证失败', [
+            Log::error('附件上传确认失败：文件验证失败', [
                 'file_path' => $validated['file_path'],
                 'user_id' => Auth::id(),
                 'verification_details' => $fileVerificationResult,
                 'request_data' => $validated,
             ]);
 
-            return $this->errorResponse(
-                '文件上传验证失败：'.$fileVerificationResult['error_message'],
-                422
-            );
+            return $this->errorResponse('文件上传验证失败', 422);
         }
 
         try {
-            // 创建附件记录
-            $attachment = Attachment::create([
-                'attachable_type' => $this->getModelClass($validated['attachable_type']),
-                'attachable_id' => $validated['attachable_id'],
-                'original_filename' => $validated['original_filename'],
-                'stored_filename' => basename($validated['file_path']),
-                'file_path' => $validated['file_path'],
-                'file_size' => $validated['file_size'],
-                'mime_type' => $validated['mime_type'],
-                'uploaded_by' => Auth::id(),
-            ]);
+            $attachment = DB::transaction(function () use ($intent, $modelClass, $validated) {
+                $lockedIntent = AttachmentUploadIntent::whereKey($intent->id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $lockedIntent || $lockedIntent->isConsumed() || $lockedIntent->isExpired()) {
+                    return null;
+                }
+
+                if (Attachment::where('file_path', $validated['file_path'])->exists()) {
+                    return null;
+                }
+
+                // 创建附件记录
+                $attachment = Attachment::create([
+                    'attachable_type' => $modelClass,
+                    'attachable_id' => $validated['attachable_id'],
+                    'original_filename' => $validated['original_filename'],
+                    'stored_filename' => basename($validated['file_path']),
+                    'file_path' => $validated['file_path'],
+                    'file_size' => $validated['file_size'],
+                    'mime_type' => $validated['mime_type'],
+                    'uploaded_by' => Auth::id(),
+                ]);
+
+                $lockedIntent->forceFill(['consumed_at' => now()])->save();
+
+                return $attachment;
+            });
+
+            if (! $attachment) {
+                return $this->errorResponse('上传凭证无效或已过期', 422);
+            }
 
             // 加载关联数据
             $attachment->load('uploadedBy');
@@ -269,12 +342,13 @@ class AttachmentController extends ApiController
             Log::error('附件记录保存失败', [
                 'file_path' => $validated['file_path'],
                 'user_id' => Auth::id(),
+                'exception' => get_class($e),
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'request_data' => $validated,
             ]);
 
-            return $this->errorResponse('附件记录保存失败：'.$e->getMessage(), 500);
+            return $this->errorResponse('附件记录保存失败', 500);
         }
     }
 
@@ -352,7 +426,7 @@ class AttachmentController extends ApiController
     /**
      * 删除附件
      *
-     * 删除指定附件，同时从对象存储中删除文件。
+     * 删除指定附件。对象存储文件由 Attachment 模型事件统一处理。
      *
      * @urlParam attachment integer required 附件ID Example: 1
      *
@@ -371,7 +445,7 @@ class AttachmentController extends ApiController
      * }
      * @response 500 scenario="删除失败" {
      *   "success": false,
-     *   "message": "附件删除失败：..."
+     *   "message": "附件删除失败"
      * }
      * @response 401 scenario="未认证" {
      *   "success": false,
@@ -390,16 +464,22 @@ class AttachmentController extends ApiController
         }
 
         try {
-            // 从对象存储删除文件
-            $this->deleteFileFromStorage($attachment->file_path);
-
-            // 删除数据库记录
+            // 删除数据库记录，存储对象删除由模型事件统一处理
             $attachment->delete();
 
             return $this->successResponse(null, '附件删除成功');
 
         } catch (\Exception $e) {
-            return $this->errorResponse('附件删除失败：'.$e->getMessage(), 500);
+            Log::error('附件删除失败', [
+                'attachment_id' => $attachment->id,
+                'file_path' => $attachment->file_path,
+                'user_id' => Auth::id(),
+                'exception' => get_class($e),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return $this->errorResponse('附件删除失败', 500);
         }
     }
 
@@ -499,31 +579,14 @@ class AttachmentController extends ApiController
      */
     private function generateS3PresignedUrl(string $filePath, ?string $contentType = null): string
     {
-        $config = config('filesystems.disks.s3-compat');
-
-        // 确保endpoint格式正确
-        $endpoint = $config['endpoint'];
-        if (! str_starts_with($endpoint, 'http://') && ! str_starts_with($endpoint, 'https://')) {
-            $endpoint = 'https://'.$endpoint;
-        }
+        $configService = app(S3RuntimeConfigService::class);
+        $config = $configService->effectiveConfig();
+        $clientOptions = $configService->s3ClientOptions($config);
+        $endpoint = $clientOptions['endpoint'];
 
         try {
             // 配置S3客户端
-            $s3Client = new \Aws\S3\S3Client([
-                'credentials' => [
-                    'key' => $config['key'],
-                    'secret' => $config['secret'],
-                ],
-                'use_path_style_endpoint' => false, // 官方文档使用false
-                'use_aws_shared_config_files' => false, // 官方文档建议
-                'endpoint' => $endpoint,
-                'signature_version' => 'v4', // 官方文档明确使用v4
-                'version' => 'latest',
-                'region' => $config['region'],
-                'http' => [
-                    'verify' => false,
-                ],
-            ]);
+            $s3Client = new \Aws\S3\S3Client($clientOptions);
 
             // 创建PutObject命令
             $command = $s3Client->getCommand('PutObject', [
@@ -704,34 +767,6 @@ class AttachmentController extends ApiController
                 'message' => $e->getMessage(),
                 'error_code' => $e->getCode(),
             ];
-        }
-    }
-
-    /**
-     * 从对象存储删除文件
-     */
-    private function deleteFileFromStorage(string $filePath): void
-    {
-        try {
-            $disk = Storage::disk(config('app.attachment_disk', 's3-compat'));
-
-            // 直接尝试删除，不依赖 exists() 检查
-            // S3 的 exists() 检查可能因为权限或配置问题返回 false
-            $deleted = $disk->delete($filePath);
-
-            if ($deleted) {
-                Log::info('文件删除成功', ['file_path' => $filePath]);
-            } else {
-                Log::warning('文件删除返回false，可能文件不存在', ['file_path' => $filePath]);
-            }
-        } catch (\Exception $e) {
-            Log::error('文件删除失败', [
-                'file_path' => $filePath,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-            // 不抛出异常，允许继续删除数据库记录
-            // 文件可能已经不存在或权限问题
         }
     }
 }

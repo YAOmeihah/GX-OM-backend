@@ -135,6 +135,24 @@ class AuditContextResolver
             return $model->store_id;
         }
 
+        if ($model && (isset($model->attachable_type) || method_exists($model, 'attachable'))) {
+            try {
+                $attachable = $model->relationLoaded('attachable')
+                    ? $model->getRelation('attachable')
+                    : $model->attachable;
+
+                if ($attachable && isset($attachable->store_id)) {
+                    return $attachable->store_id;
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Failed to resolve attachment business store id', [
+                    'model' => get_class($model),
+                    'id' => $model->id ?? null,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
         // 如果模型没有 store_id，但作用域是 store，这是异常情况
         // 记录警告日志
         if ($model) {

@@ -334,7 +334,16 @@ class InvoiceController extends ApiController
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return $this->errorResponse('账单创建失败：'.$e->getMessage(), 500);
+            \Log::error('账单创建失败', [
+                'user_id' => Auth::id(),
+                'store_id' => $validated['store_id'] ?? null,
+                'customer_id' => $validated['customer_id'] ?? null,
+                'exception' => get_class($e),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return $this->errorResponse('账单创建失败', 500);
         }
     }
 
@@ -678,7 +687,15 @@ class InvoiceController extends ApiController
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return $this->errorResponse('账单更新失败：'.$e->getMessage(), 500);
+            \Log::error('账单更新失败', [
+                'user_id' => Auth::id(),
+                'invoice_id' => $invoice->id ?? $id,
+                'exception' => get_class($e),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return $this->errorResponse('账单更新失败', 500);
         }
     }
 
