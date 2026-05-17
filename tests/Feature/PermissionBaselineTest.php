@@ -40,7 +40,7 @@ class PermissionBaselineTest extends TestCase
         $storeStaffRole = Role::firstOrCreate(['slug' => 'store_staff', 'name' => '店员']);
 
         // Admin user
-        $this->admin = User::factory()->create();
+        $this->admin = User::factory()->create(['username' => 'baseline_admin']);
         $this->admin->roles()->attach($adminRole);
 
         // Stores
@@ -52,12 +52,12 @@ class PermissionBaselineTest extends TestCase
         $this->customerB = Customer::factory()->create(['store_id' => $this->storeB->id]);
 
         // Store owner — owns store A
-        $this->storeOwner = User::factory()->create();
+        $this->storeOwner = User::factory()->create(['username' => 'baseline_owner']);
         $this->storeOwner->roles()->attach($storeOwnerRole);
         $this->storeOwner->stores()->attach($this->storeA->id);
 
         // Store staff — assigned to store A
-        $this->storeStaff = User::factory()->create();
+        $this->storeStaff = User::factory()->create(['username' => 'baseline_staff']);
         $this->storeStaff->roles()->attach($storeStaffRole);
         $this->storeStaff->stores()->attach($this->storeA->id);
     }
@@ -220,6 +220,70 @@ class PermissionBaselineTest extends TestCase
             ->assertStatus(200)
             ->assertJsonPath('data.stores.0.id', $this->storeA->id)
             ->assertJsonPath('data.stores.0.is_manager', true);
+    }
+
+    public function test_user_endpoint_returns_capabilities_from_role_permissions(): void
+    {
+        $permission = \App\Models\Permission::firstOrCreate([
+            'slug' => 'invoices.create',
+        ], [
+            'name' => '创建账单',
+            'module' => 'invoices',
+            'description' => '创建新账单',
+        ]);
+        $this->storeStaff->roles()->first()->permissions()->syncWithoutDetaching([$permission->id]);
+
+        Sanctum::actingAs($this->storeStaff);
+
+        $response = $this->getJson('/api/user')
+            ->assertStatus(200);
+
+        $this->assertContains('invoices.create', $response->json('data.capabilities'));
+    }
+
+    public function test_my_permissions_returns_capabilities_alias(): void
+    {
+        $permission = \App\Models\Permission::firstOrCreate([
+            'slug' => 'payments.create',
+        ], [
+            'name' => '创建还款',
+            'module' => 'payments',
+            'description' => '创建新还款记录',
+        ]);
+        $this->storeStaff->roles()->first()->permissions()->syncWithoutDetaching([$permission->id]);
+
+        Sanctum::actingAs($this->storeStaff);
+
+        $response = $this->getJson('/api/permissions/my')
+            ->assertStatus(200);
+
+        $permissions = $response->json('data.permissions');
+        $capabilities = $response->json('data.capabilities');
+
+        $this->assertContains('payments.create', $permissions);
+        $this->assertContains('payments.create', $capabilities);
+        $this->assertEqualsCanonicalizing($permissions, $capabilities);
+    }
+
+    public function test_login_response_embeds_user_capabilities(): void
+    {
+        $permission = \App\Models\Permission::firstOrCreate([
+            'slug' => 'audit-logs.view',
+        ], [
+            'name' => '查看审计日志',
+            'module' => 'audit',
+            'description' => '查看系统审计日志',
+        ]);
+        $this->storeOwner->roles()->first()->permissions()->syncWithoutDetaching([$permission->id]);
+        $this->storeOwner->forceFill(['password' => bcrypt('secret-password')])->save();
+
+        $response = $this->postJson('/api/login', [
+            'login' => $this->storeOwner->username,
+            'password' => 'secret-password',
+        ])
+            ->assertStatus(200);
+
+        $this->assertContains('audit-logs.view', $response->json('data.user.capabilities'));
     }
 
     public function test_admin_can_delete_store_without_business_associations(): void

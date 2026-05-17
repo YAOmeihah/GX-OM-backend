@@ -356,9 +356,11 @@ class PermissionController extends ApiController
     public function myPermissions()
     {
         $user = Auth::user();
+        $capabilities = $user->getPermissionsList();
 
         return $this->successResponse([
-            'permissions' => $user->getPermissionsList(),
+            'permissions' => $capabilities,
+            'capabilities' => $capabilities,
             'roles' => $user->getRolesList(),
         ]);
     }

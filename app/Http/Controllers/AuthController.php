@@ -101,6 +101,7 @@ class AuthController extends ApiController
 
         // 加载用户关联数据
         $user->load(['roles', 'stores']);
+        $capabilities = $user->getPermissionsList();
 
         // 记录登录成功的审计日志
         $this->auditLogService->logLogin($user, true);
@@ -113,6 +114,7 @@ class AuthController extends ApiController
                 'email' => $user->email,
                 'roles' => $user->roles->pluck('slug')->toArray(),
                 'stores' => $this->getUserStoresResponse($user),
+                'capabilities' => $capabilities,
             ],
             'token' => $token,
         ], '登录成功');
@@ -196,6 +198,7 @@ class AuthController extends ApiController
             'updated_at' => $user->updated_at,
             'roles' => $user->roles->pluck('slug')->toArray(),
             'stores' => $this->getUserStoresResponse($user),
+            'capabilities' => $user->getPermissionsList(),
         ]);
     }
 

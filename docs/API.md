@@ -184,6 +184,13 @@ All authenticated endpoints are marked with a `requires authentication` badge in
                     "code": "MAIN",
                     "is_manager": true
                 }
+            ],
+            "capabilities": [
+                "invoices.view",
+                "invoices.create",
+                "payments.view",
+                "payments.create",
+                "audit-logs.view"
             ]
         },
         "token": "1|abcdefghijklmnopqrstuvwxyz123456"
@@ -445,6 +452,13 @@ fetch('http://localhost:8000/api/logout', {
                 "code": "MAIN",
                 "is_manager": true
             }
+        ],
+        "capabilities": [
+            "invoices.view",
+            "invoices.create",
+            "payments.view",
+            "payments.create",
+            "audit-logs.view"
         ]
     }
 }
@@ -7542,6 +7556,13 @@ fetch('http://localhost:8000/api/audit-logs/1', {
             "payments.create",
             "customers.view"
         ],
+        "capabilities": [
+            "invoices.view",
+            "invoices.create",
+            "payments.view",
+            "payments.create",
+            "customers.view"
+        ],
         "roles": [
             "store_staff"
         ]
@@ -7574,6 +7595,25 @@ fetch('http://localhost:8000/api/audit-logs/1', {
             "reports.view",
             "reports.export"
         ],
+        "capabilities": [
+            "invoices.view",
+            "invoices.create",
+            "invoices.update",
+            "invoices.delete",
+            "payments.view",
+            "payments.create",
+            "payments.allocate",
+            "payments.revoke",
+            "payments.discount",
+            "payments.delete",
+            "customers.view",
+            "customers.create",
+            "customers.update",
+            "customers.delete",
+            "dashboard.view",
+            "reports.view",
+            "reports.export"
+        ],
         "roles": [
             "store_owner"
         ]
@@ -7588,6 +7628,39 @@ fetch('http://localhost:8000/api/audit-logs/1', {
     "success": true,
     "data": {
         "permissions": [
+            "invoices.view",
+            "invoices.create",
+            "invoices.update",
+            "invoices.delete",
+            "payments.view",
+            "payments.create",
+            "payments.allocate",
+            "payments.revoke",
+            "payments.discount",
+            "payments.delete",
+            "customers.view",
+            "customers.create",
+            "customers.update",
+            "customers.delete",
+            "stores.view",
+            "stores.create",
+            "stores.update",
+            "stores.delete",
+            "users.view",
+            "users.create",
+            "users.update",
+            "users.delete",
+            "users.assign-roles",
+            "users.assign-stores",
+            "dashboard.view",
+            "reports.view",
+            "reports.export",
+            "audit-logs.view",
+            "roles.view",
+            "roles.update",
+            "settings.manage"
+        ],
+        "capabilities": [
             "invoices.view",
             "invoices.create",
             "invoices.update",
@@ -8400,4 +8473,3 @@ fetch('http://localhost:8000/api/maintenance/export/sed', {
 ```
 
 ---
-
