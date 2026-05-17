@@ -9,11 +9,15 @@ use Tests\TestCase;
 
 use App\Models\Attachment;
 use App\Models\AttachmentUploadIntent;
+use App\Models\AuditLog;
 use App\Models\Customer;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\InvoiceShareToken;
 use App\Models\InvoiceShareTokenLog;
 use App\Models\Payment;
+use App\Models\PaymentAllocation;
+use App\Models\PaymentDiscount;
 use App\Models\RuntimeConfig;
 use App\Models\Role;
 use App\Models\User;
@@ -121,6 +125,33 @@ class DevSeedDemoCommandTest extends TestCase
         $this->assertGreaterThan(0, Role::where('slug', 'admin')->firstOrFail()->permissions()->count());
     }
 
+    public function test_seed_creates_financial_scenarios(): void
+    {
+        $this->artisan('dev:seed-demo')
+            ->assertExitCode(Command::SUCCESS);
+
+        $this->assertSame(45, Invoice::where('invoice_number', 'like', 'DEMO-INV-%')->count());
+        $this->assertGreaterThanOrEqual(90, InvoiceItem::where('item_description', 'like', 'DEMO:%')->count());
+        $this->assertBetween(25, 30, Payment::where('payment_number', 'like', 'DEMO-PAY-%')->count());
+        $this->assertBetween(30, 40, PaymentAllocation::query()
+            ->whereIn('allocated_by', User::where('email', 'like', 'demo.%@example.com')->pluck('id'))
+            ->count());
+        $this->assertSame(12, PaymentDiscount::where('reason', 'like', 'DEMO:%')->count());
+
+        $this->assertGreaterThan(0, Invoice::where('invoice_number', 'like', 'DEMO-INV-%')->where('status', 'unpaid')->count());
+        $this->assertGreaterThan(0, Invoice::where('invoice_number', 'like', 'DEMO-INV-%')->where('status', 'partially_paid')->count());
+        $this->assertGreaterThan(0, Invoice::where('invoice_number', 'like', 'DEMO-INV-%')->where('status', 'paid')->count());
+        $this->assertGreaterThan(0, Invoice::where('invoice_number', 'like', 'DEMO-INV-%')->where('status', 'overdue')->count());
+
+        foreach (['cash', 'bank_transfer', 'wechat', 'alipay', 'other'] as $method) {
+            $this->assertDatabaseHas('payments', ['payment_method' => $method]);
+        }
+
+        foreach (['write_off', 'discount', 'promotion'] as $type) {
+            $this->assertDatabaseHas('payment_discounts', ['discount_type' => $type]);
+        }
+    }
+
     private function createMinimalDemoRows(): void
     {
         $demoStore = Store::factory()->create(['code' => 'DEMO-A']);
@@ -223,5 +254,30 @@ class DevSeedDemoCommandTest extends TestCase
             'key' => 'demo.s3-compat',
             'value' => ['demo_seeded' => true, 'access_key' => 'demo-key', 'secret_key' => 'demo-secret'],
         ]);
+    }
+
+    private function assertBetween(int $min, int $max, int $actual): void
+    {
+        $this->assertGreaterThanOrEqual($min, $actual);
+        $this->assertLessThanOrEqual($max, $actual);
+    }
+
+    private function demoCounts(): array
+    {
+        return [
+            'stores' => Store::where('code', 'like', 'DEMO-%')->count(),
+            'users' => User::where('email', 'like', 'demo.%@example.com')->count(),
+            'customers' => Customer::where('remarks', 'like', 'DEMO:%')->count(),
+            'invoices' => Invoice::where('invoice_number', 'like', 'DEMO-INV-%')->count(),
+            'invoice_items' => InvoiceItem::where('item_description', 'like', 'DEMO:%')->count(),
+            'payments' => Payment::where('payment_number', 'like', 'DEMO-PAY-%')->count(),
+            'allocations' => PaymentAllocation::query()->count(),
+            'discounts' => PaymentDiscount::where('reason', 'like', 'DEMO:%')->count(),
+            'share_tokens' => InvoiceShareToken::where('token', 'like', 'demo-%')->count(),
+            'attachments' => Attachment::where('file_path', 'like', 'demo/%')->count(),
+            'upload_intents' => AttachmentUploadIntent::where('file_path', 'like', 'demo/%')->count(),
+            'audit_logs' => AuditLog::where('description', 'like', 'DEMO:%')->count(),
+            'runtime_configs' => RuntimeConfig::where('key', 'like', 'demo.%')->count(),
+        ];
     }
 }

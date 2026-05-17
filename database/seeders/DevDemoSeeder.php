@@ -25,6 +25,8 @@ use Illuminate\Support\Facades\Schema;
 
 class DevDemoSeeder extends Seeder
 {
+    private const DEMO_DATE = '20260518';
+
     public function cleanDemoData(): array
     {
         return DB::transaction(function (): array {
@@ -351,9 +353,62 @@ class DevDemoSeeder extends Seeder
      */
     private function seedInvoicesAndItems(array $stores, array $users, array $customers): array
     {
+        $invoices = [];
+        $itemCount = 0;
+        $sequence = 1;
+        $customerDefinitions = $this->customerDefinitions();
+
+        foreach ($customers as $customerKey => $customer) {
+            $storeKey = $customerDefinitions[$customerKey]['store'];
+            $creator = $users[$this->creatorKeyForStore($storeKey)];
+
+            for ($slot = 1; $slot <= 3; $slot++) {
+                $amount = 300 + ($sequence * 20);
+                $invoiceNumber = sprintf('DEMO-INV-%s-%03d', self::DEMO_DATE, $sequence);
+
+                $invoice = Invoice::create([
+                    'invoice_number' => $invoiceNumber,
+                    'store_id' => $stores[$storeKey]->id,
+                    'customer_id' => $customer->id,
+                    'created_by' => $creator->id,
+                    'amount' => $amount,
+                    'paid_amount' => 0,
+                    'due_date' => $this->demoInvoiceDueDate($slot, $sequence),
+                    'status' => 'unpaid',
+                    'description' => "DEMO: {$customerKey} invoice {$slot}",
+                ]);
+
+                $invoice->forceFill([
+                    'created_at' => $this->demoInvoiceCreatedAt($slot, $sequence),
+                    'updated_at' => $this->demoInvoiceCreatedAt($slot, $sequence),
+                ])->saveQuietly();
+
+                foreach ([1, 2] as $itemIndex) {
+                    InvoiceItem::create([
+                        'invoice_id' => $invoice->id,
+                        'item_name' => "DEMO 商品 {$sequence}-{$itemIndex}",
+                        'item_description' => "DEMO: {$invoiceNumber} 明细 {$itemIndex}",
+                        'quantity' => 1,
+                        'unit_price' => $amount / 2,
+                        'subtotal' => $amount / 2,
+                        'sort_order' => $itemIndex,
+                    ]);
+
+                    $itemCount++;
+                }
+
+                $invoice->refresh()->updateStatus();
+                $invoices["{$customerKey}_{$slot}"] = $invoice->refresh();
+                $sequence++;
+            }
+        }
+
         return [
-            'models' => [],
-            'summary' => [],
+            'models' => $invoices,
+            'summary' => [
+                'invoices' => count($invoices),
+                'invoice_items' => $itemCount,
+            ],
         ];
     }
 
@@ -368,9 +423,49 @@ class DevDemoSeeder extends Seeder
      */
     private function seedPaymentsAndAllocations(array $stores, array $users, array $customers, array $invoices): array
     {
+        $payments = [];
+        $allocationCount = 0;
+
+        foreach ($this->paymentDefinitions() as $sequence => $definition) {
+            $customer = $customers[$definition['customer']];
+            $storeKey = $this->customerDefinitions()[$definition['customer']]['store'];
+            $receivedBy = $users[$definition['user'] ?? $this->receiverKeyForStore($storeKey)];
+            $allocations = $definition['allocations'] ?? [];
+            $amount = $definition['amount'] ?? $this->allocationSum($allocations, $invoices);
+            $amount += $definition['extra'] ?? 0;
+
+            $payment = Payment::create([
+                'payment_number' => sprintf('DEMO-PAY-%s-%03d', self::DEMO_DATE, $sequence + 1),
+                'store_id' => $stores[$storeKey]->id,
+                'customer_id' => $customer->id,
+                'received_by' => $receivedBy->id,
+                'amount' => round($amount, 2),
+                'allocated_amount' => 0,
+                'payment_method' => $definition['method'],
+                'reference_number' => sprintf('DEMO-REF-%03d', $sequence + 1),
+                'remarks' => $definition['remarks'] ?? 'DEMO: local payment fixture',
+            ]);
+
+            foreach ($allocations as $allocation) {
+                $invoice = $invoices[$allocation['invoice']];
+                $payment->allocateToInvoice(
+                    $invoice,
+                    $this->resolveAllocationAmount($invoice, $allocation['amount']),
+                    $receivedBy->id
+                );
+                $payment->refresh();
+                $allocationCount++;
+            }
+
+            $payments[$definition['key']] = $payment->refresh();
+        }
+
         return [
-            'models' => [],
-            'summary' => [],
+            'models' => $payments,
+            'summary' => [
+                'payments' => count($payments),
+                'payment_allocations' => $allocationCount,
+            ],
         ];
     }
 
@@ -384,9 +479,28 @@ class DevDemoSeeder extends Seeder
      */
     private function seedDiscounts(array $users, array $payments, array $invoices): array
     {
+        $discounts = [];
+
+        foreach ($this->discountDefinitions() as $definition) {
+            $payment = $payments[$definition['payment']];
+            $invoice = $invoices[$definition['invoice']];
+            $approvedBy = $users[$definition['approved_by']];
+
+            $discount = $payment->createDiscount(
+                $invoice,
+                $definition['amount'],
+                $definition['type'],
+                $definition['reason'],
+                $approvedBy->id
+            );
+
+            $invoice->refresh()->updateStatus();
+            $discounts[$definition['key']] = $discount;
+        }
+
         return [
-            'models' => [],
-            'summary' => [],
+            'models' => $discounts,
+            'summary' => ['payment_discounts' => count($discounts)],
         ];
     }
 
@@ -484,6 +598,182 @@ class DevDemoSeeder extends Seeder
         return [
             'models' => [],
             'summary' => [],
+        ];
+    }
+
+    private function creatorKeyForStore(string $storeKey): string
+    {
+        return match ($storeKey) {
+            'A' => 'ownerA',
+            'B' => 'ownerB',
+            default => 'admin',
+        };
+    }
+
+    private function receiverKeyForStore(string $storeKey): string
+    {
+        return match ($storeKey) {
+            'A' => 'staffA',
+            'B' => 'staffB',
+            default => 'admin',
+        };
+    }
+
+    private function demoInvoiceDueDate(int $slot, int $sequence): \Illuminate\Support\Carbon
+    {
+        if ($slot === 2 && $sequence % 5 === 0) {
+            return now();
+        }
+
+        return match ($slot) {
+            1 => now()->addDays(14 + ($sequence % 9)),
+            2 => now()->endOfMonth()->subDays($sequence % 4),
+            default => now()->subDays(10 + ($sequence % 20)),
+        };
+    }
+
+    private function demoInvoiceCreatedAt(int $slot, int $sequence): \Illuminate\Support\Carbon
+    {
+        return match ($slot) {
+            1 => now()->subDays($sequence % 7),
+            2 => now()->subDays(15 + ($sequence % 7)),
+            default => now()->subMonths(4)->subDays($sequence % 10),
+        };
+    }
+
+    /**
+     * @param  array<int, array{invoice: string, amount: int|float|string}>  $allocations
+     * @param  array<string, Invoice>  $invoices
+     */
+    private function allocationSum(array $allocations, array $invoices): float
+    {
+        return array_reduce(
+            $allocations,
+            fn (float $sum, array $allocation): float => $sum + $this->resolveAllocationAmount(
+                $invoices[$allocation['invoice']],
+                $allocation['amount']
+            ),
+            0.0
+        );
+    }
+
+    private function resolveAllocationAmount(Invoice $invoice, int|float|string $amount): float
+    {
+        return $amount === 'full'
+            ? (float) $invoice->amount
+            : (float) $amount;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function paymentDefinitions(): array
+    {
+        return [
+            ['key' => 'pay001', 'customer' => 'paidA', 'method' => 'cash', 'allocations' => [
+                ['invoice' => 'paidA_1', 'amount' => 'full'],
+                ['invoice' => 'paidA_2', 'amount' => 'full'],
+                ['invoice' => 'paidA_3', 'amount' => 'full'],
+            ]],
+            ['key' => 'pay002', 'customer' => 'debtA', 'method' => 'bank_transfer', 'extra' => 50, 'allocations' => [
+                ['invoice' => 'debtA_1', 'amount' => 'full'],
+                ['invoice' => 'debtA_2', 'amount' => 100],
+            ]],
+            ['key' => 'pay003', 'customer' => 'overdueA', 'method' => 'wechat', 'extra' => 100, 'allocations' => [
+                ['invoice' => 'overdueA_1', 'amount' => 220],
+                ['invoice' => 'overdueA_2', 'amount' => 100],
+            ]],
+            ['key' => 'pay004', 'customer' => 'discountA', 'method' => 'alipay', 'allocations' => [
+                ['invoice' => 'discountA_1', 'amount' => 'full'],
+                ['invoice' => 'discountA_2', 'amount' => 300],
+            ]],
+            ['key' => 'pay005', 'customer' => 'writeoffA', 'method' => 'other', 'extra' => 25, 'allocations' => [
+                ['invoice' => 'writeoffA_1', 'amount' => 100],
+                ['invoice' => 'writeoffA_2', 'amount' => 150],
+            ]],
+            ['key' => 'pay006', 'customer' => 'attachmentA', 'method' => 'cash', 'allocations' => [
+                ['invoice' => 'attachmentA_1', 'amount' => 'full'],
+                ['invoice' => 'attachmentA_2', 'amount' => 200],
+            ]],
+            ['key' => 'pay007', 'customer' => 'shareA', 'method' => 'bank_transfer', 'extra' => 75, 'allocations' => [
+                ['invoice' => 'shareA_1', 'amount' => 'full'],
+                ['invoice' => 'shareA_2', 'amount' => 250],
+            ]],
+            ['key' => 'pay008', 'customer' => 'sameNameA', 'method' => 'wechat', 'extra' => 200, 'allocations' => [
+                ['invoice' => 'sameNameA_1', 'amount' => 200],
+            ]],
+            ['key' => 'pay009', 'customer' => 'sameNameB', 'method' => 'alipay', 'allocations' => [
+                ['invoice' => 'sameNameB_1', 'amount' => 'full'],
+            ]],
+            ['key' => 'pay010', 'customer' => 'debtB', 'method' => 'other', 'extra' => 80, 'allocations' => [
+                ['invoice' => 'debtB_1', 'amount' => 300],
+            ]],
+            ['key' => 'pay011', 'customer' => 'paidB', 'method' => 'cash', 'allocations' => [
+                ['invoice' => 'paidB_1', 'amount' => 'full'],
+            ]],
+            ['key' => 'pay012', 'customer' => 'filterB', 'method' => 'bank_transfer', 'extra' => 120, 'allocations' => [
+                ['invoice' => 'filterB_1', 'amount' => 400],
+            ]],
+            ['key' => 'pay013', 'customer' => 'edgeC', 'method' => 'wechat', 'allocations' => [
+                ['invoice' => 'edgeC_1', 'amount' => 'full'],
+            ]],
+            ['key' => 'pay014', 'customer' => 'emptyC', 'method' => 'alipay', 'extra' => 100, 'allocations' => [
+                ['invoice' => 'emptyC_1', 'amount' => 500],
+            ]],
+            ['key' => 'pay015', 'customer' => 'maintenanceA', 'method' => 'other', 'extra' => 100, 'allocations' => [
+                ['invoice' => 'maintenanceA_1', 'amount' => 600],
+            ]],
+            ['key' => 'pay016', 'customer' => 'discountA', 'method' => 'cash', 'extra' => 50, 'allocations' => [
+                ['invoice' => 'discountA_3', 'amount' => 100],
+            ]],
+            ['key' => 'pay017', 'customer' => 'writeoffA', 'method' => 'bank_transfer', 'extra' => 80, 'allocations' => [
+                ['invoice' => 'writeoffA_3', 'amount' => 120],
+            ]],
+            ['key' => 'pay018', 'customer' => 'attachmentA', 'method' => 'wechat', 'allocations' => [
+                ['invoice' => 'attachmentA_3', 'amount' => 'full'],
+            ]],
+            ['key' => 'pay019', 'customer' => 'shareA', 'method' => 'alipay', 'extra' => 100, 'allocations' => [
+                ['invoice' => 'shareA_3', 'amount' => 250],
+            ]],
+            ['key' => 'pay020', 'customer' => 'sameNameA', 'method' => 'other', 'allocations' => [
+                ['invoice' => 'sameNameA_2', 'amount' => 'full'],
+            ]],
+            ['key' => 'pay021', 'customer' => 'sameNameB', 'method' => 'cash', 'extra' => 100, 'allocations' => [
+                ['invoice' => 'sameNameB_2', 'amount' => 300],
+            ]],
+            ['key' => 'pay022', 'customer' => 'debtB', 'method' => 'bank_transfer', 'allocations' => [
+                ['invoice' => 'debtB_2', 'amount' => 'full'],
+            ]],
+            ['key' => 'pay023', 'customer' => 'paidB', 'method' => 'wechat', 'allocations' => [
+                ['invoice' => 'paidB_3', 'amount' => 'full'],
+            ]],
+            ['key' => 'pay024', 'customer' => 'filterB', 'method' => 'alipay', 'extra' => 100, 'allocations' => [
+                ['invoice' => 'filterB_2', 'amount' => 500],
+            ]],
+            ['key' => 'pay025', 'customer' => 'debtA', 'method' => 'other', 'amount' => 180, 'remarks' => 'DEMO: unallocated payment store A'],
+            ['key' => 'pay026', 'customer' => 'filterB', 'method' => 'cash', 'amount' => 260, 'remarks' => 'DEMO: unallocated payment store B'],
+            ['key' => 'pay027', 'customer' => 'edgeC', 'method' => 'bank_transfer', 'amount' => 370, 'remarks' => 'DEMO: unallocated payment store C'],
+        ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function discountDefinitions(): array
+    {
+        return [
+            ['key' => 'disc001', 'payment' => 'pay002', 'invoice' => 'debtA_2', 'amount' => 240, 'type' => PaymentDiscount::TYPE_DISCOUNT, 'approved_by' => 'ownerA', 'reason' => 'DEMO: 清欠抹零折扣'],
+            ['key' => 'disc002', 'payment' => 'pay003', 'invoice' => 'overdueA_1', 'amount' => 100, 'type' => PaymentDiscount::TYPE_PROMOTION, 'approved_by' => 'ownerA', 'reason' => 'DEMO: 逾期客户促销减免'],
+            ['key' => 'disc003', 'payment' => 'pay003', 'invoice' => 'overdueA_2', 'amount' => 50, 'type' => PaymentDiscount::TYPE_WRITE_OFF, 'approved_by' => 'admin', 'reason' => 'DEMO: 逾期坏账核销'],
+            ['key' => 'disc004', 'payment' => 'pay004', 'invoice' => 'discountA_2', 'amount' => 220, 'type' => PaymentDiscount::TYPE_DISCOUNT, 'approved_by' => 'ownerA', 'reason' => 'DEMO: 折扣客户尾款减免'],
+            ['key' => 'disc005', 'payment' => 'pay004', 'invoice' => 'discountA_3', 'amount' => 100, 'type' => PaymentDiscount::TYPE_PROMOTION, 'approved_by' => 'ownerA', 'reason' => 'DEMO: 活动促销优惠'],
+            ['key' => 'disc006', 'payment' => 'pay005', 'invoice' => 'writeoffA_1', 'amount' => 460, 'type' => PaymentDiscount::TYPE_WRITE_OFF, 'approved_by' => 'admin', 'reason' => 'DEMO: 大额坏账核销'],
+            ['key' => 'disc007', 'payment' => 'pay005', 'invoice' => 'writeoffA_2', 'amount' => 70, 'type' => PaymentDiscount::TYPE_WRITE_OFF, 'approved_by' => 'admin', 'reason' => 'DEMO: 小额坏账核销'],
+            ['key' => 'disc008', 'payment' => 'pay006', 'invoice' => 'attachmentA_2', 'amount' => 440, 'type' => PaymentDiscount::TYPE_DISCOUNT, 'approved_by' => 'ownerA', 'reason' => 'DEMO: 附件客户折扣'],
+            ['key' => 'disc009', 'payment' => 'pay007', 'invoice' => 'shareA_2', 'amount' => 100, 'type' => PaymentDiscount::TYPE_PROMOTION, 'approved_by' => 'ownerA', 'reason' => 'DEMO: 分享客户促销'],
+            ['key' => 'disc010', 'payment' => 'pay008', 'invoice' => 'sameNameA_1', 'amount' => 100, 'type' => PaymentDiscount::TYPE_DISCOUNT, 'approved_by' => 'ownerA', 'reason' => 'DEMO: 同名客户折扣'],
+            ['key' => 'disc011', 'payment' => 'pay010', 'invoice' => 'debtB_1', 'amount' => 300, 'type' => PaymentDiscount::TYPE_PROMOTION, 'approved_by' => 'ownerB', 'reason' => 'DEMO: 门店B促销优惠'],
+            ['key' => 'disc012', 'payment' => 'pay024', 'invoice' => 'filterB_2', 'amount' => 500, 'type' => PaymentDiscount::TYPE_WRITE_OFF, 'approved_by' => 'ownerB', 'reason' => 'DEMO: 门店B坏账核销'],
         ];
     }
 
