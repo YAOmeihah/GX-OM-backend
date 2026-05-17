@@ -11,6 +11,7 @@ use App\Models\Attachment;
 use App\Models\AttachmentUploadIntent;
 use App\Models\AuditLog;
 use App\Models\Customer;
+use App\Models\CustomerStoreStat;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceShareToken;
@@ -150,6 +151,33 @@ class DevSeedDemoCommandTest extends TestCase
         foreach (['write_off', 'discount', 'promotion'] as $type) {
             $this->assertDatabaseHas('payment_discounts', ['discount_type' => $type]);
         }
+    }
+
+    public function test_seed_creates_supporting_module_data_and_stats(): void
+    {
+        $this->artisan('dev:seed-demo')->assertExitCode(Command::SUCCESS);
+
+        $this->assertSame(6, InvoiceShareToken::where('token', 'like', 'demo-%')->count());
+        $this->assertDatabaseHas('invoice_share_tokens', ['type' => 'fixed']);
+        $this->assertDatabaseHas('invoice_share_tokens', ['type' => 'dynamic']);
+        $this->assertGreaterThan(0, InvoiceShareToken::where('token', 'like', 'demo-expired-%')->where('expires_at', '<', now())->count());
+        $this->assertGreaterThan(0, InvoiceShareTokenLog::count());
+
+        $this->assertSame(8, Attachment::where('file_path', 'like', 'demo/%')->count());
+        $this->assertSame(4, AttachmentUploadIntent::where('file_path', 'like', 'demo/%')->count());
+
+        $this->assertSame(40, AuditLog::where('description', 'like', 'DEMO:%')->count());
+
+        $demoCustomerIds = Customer::where('remarks', 'like', 'DEMO:%')->pluck('id');
+        $demoStoreIds = Store::where('code', 'like', 'DEMO-%')->pluck('id');
+        $this->assertGreaterThan(0, CustomerStoreStat::whereIn('customer_id', $demoCustomerIds)->whereIn('store_id', $demoStoreIds)->count());
+
+        $this->assertGreaterThan(0, InvoiceItem::where('item_description', 'like', 'DEMO: orphan%')->count());
+        $this->assertGreaterThan(0, PaymentAllocation::whereIn('allocated_by', User::where('email', 'like', 'demo.%@example.com')->pluck('id'))
+            ->whereNotIn('payment_id', Payment::pluck('id'))
+            ->count());
+        $this->assertGreaterThan(0, Invoice::where('description', 'like', 'DEMO: maintenance amount mismatch%')->count());
+        $this->assertGreaterThan(0, Invoice::where('description', 'like', 'DEMO: maintenance status mismatch%')->count());
     }
 
     private function createMinimalDemoRows(): void

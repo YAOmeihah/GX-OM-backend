@@ -136,6 +136,15 @@ class DevDemoSeeder extends Seeder
                 })
                 ->delete();
 
+            $summary['audit_logs'] = DB::table('audit_logs')
+                ->where(function ($query) use ($demoStoreIds, $demoUserIds) {
+                    $query->where('description', 'like', 'DEMO:%')
+                        ->orWhereIn('user_id', $demoUserIds)
+                        ->orWhereIn('business_store_id', $demoStoreIds)
+                        ->orWhereIn('actor_store_id', $demoStoreIds);
+                })
+                ->delete();
+
             $summary['payments'] = empty($demoPaymentIds)
                 ? 0
                 : DB::table('payments')
@@ -515,9 +524,44 @@ class DevDemoSeeder extends Seeder
      */
     private function seedShareTokens(array $users, array $stores, array $customers, array $invoices): array
     {
+        $tokens = [];
+        $logCount = 0;
+
+        foreach ($this->shareTokenDefinitions() as $key => $definition) {
+            $invoiceIds = array_map(
+                fn (string $invoiceKey): int => $invoices[$invoiceKey]->id,
+                $definition['invoice_keys']
+            );
+
+            $token = InvoiceShareToken::create([
+                'token' => $definition['token'],
+                'invoice_ids' => $invoiceIds,
+                'customer_id' => $customers[$definition['customer']]->id,
+                'store_id' => $stores[$definition['store']]->id,
+                'created_by' => $users[$definition['created_by']]->id,
+                'expires_at' => $definition['expires_at'],
+                'type' => $definition['type'],
+            ]);
+
+            if (($definition['log_access'] ?? false) === true) {
+                InvoiceShareTokenLog::create([
+                    'token_id' => $token->id,
+                    'ip_address' => '127.0.0.1',
+                    'user_agent' => 'DEMO local share token access',
+                    'accessed_at' => now()->subMinutes(30),
+                ]);
+                $logCount++;
+            }
+
+            $tokens[$key] = $token;
+        }
+
         return [
-            'models' => [],
-            'summary' => [],
+            'models' => $tokens,
+            'summary' => [
+                'invoice_share_tokens' => count($tokens),
+                'invoice_share_token_logs' => $logCount,
+            ],
         ];
     }
 
@@ -531,9 +575,50 @@ class DevDemoSeeder extends Seeder
      */
     private function seedAttachments(array $users, array $invoices, array $payments): array
     {
+        $attachments = [];
+        $uploadIntents = [];
+
+        foreach ($this->attachmentDefinitions() as $index => $definition) {
+            $attachable = $definition['type'] === 'invoice'
+                ? $invoices[$definition['key']]
+                : $payments[$definition['key']];
+
+            $attachments[$definition['slug']] = Attachment::create([
+                'attachable_type' => $definition['type'] === 'invoice' ? Invoice::class : Payment::class,
+                'attachable_id' => $attachable->id,
+                'original_filename' => $definition['filename'],
+                'stored_filename' => $definition['filename'],
+                'file_path' => sprintf('demo/attachments/%02d-%s', $index + 1, $definition['filename']),
+                'file_size' => $definition['size'],
+                'mime_type' => $definition['mime'],
+                'uploaded_by' => $users[$definition['uploaded_by']]->id,
+            ]);
+        }
+
+        foreach ($this->uploadIntentDefinitions() as $index => $definition) {
+            $attachable = $definition['type'] === 'invoice'
+                ? $invoices[$definition['key']]
+                : $payments[$definition['key']];
+
+            $uploadIntents[$definition['slug']] = AttachmentUploadIntent::create([
+                'attachable_type' => $definition['type'] === 'invoice' ? Invoice::class : Payment::class,
+                'attachable_id' => $attachable->id,
+                'file_path' => sprintf('demo/intents/%02d-%s', $index + 1, $definition['filename']),
+                'original_filename' => $definition['filename'],
+                'file_size' => $definition['size'],
+                'mime_type' => $definition['mime'],
+                'uploaded_by' => $users[$definition['uploaded_by']]->id,
+                'expires_at' => $definition['expires_at'],
+                'consumed_at' => $definition['consumed_at'] ?? null,
+            ]);
+        }
+
         return [
-            'models' => [],
-            'summary' => [],
+            'models' => $attachments,
+            'summary' => [
+                'attachments' => count($attachments),
+                'attachment_upload_intents' => count($uploadIntents),
+            ],
         ];
     }
 
@@ -544,9 +629,29 @@ class DevDemoSeeder extends Seeder
      */
     private function seedRuntimeConfigIfMissing(): array
     {
+        if (RuntimeConfig::where('key', 's3-compat')->exists()) {
+            return [
+                'models' => [],
+                'summary' => ['runtime_configs' => 0],
+            ];
+        }
+
+        $config = RuntimeConfig::create([
+            'key' => 's3-compat',
+            'value' => [
+                'demo_seeded' => true,
+                'access_key' => 'demo-access-key',
+                'secret_key' => 'demo-secret-key',
+                'region' => 'us-east-1',
+                'bucket' => 'demo-local-bucket',
+                'endpoint' => 'https://demo.invalid',
+                'use_path_style_endpoint' => true,
+            ],
+        ]);
+
         return [
-            'models' => [],
-            'summary' => [],
+            'models' => [$config],
+            'summary' => ['runtime_configs' => 1],
         ];
     }
 
@@ -562,9 +667,82 @@ class DevDemoSeeder extends Seeder
      */
     private function seedAuditLogs(array $users, array $stores, array $customers, array $invoices, array $payments): array
     {
+        $logs = [];
+        $actions = [
+            AuditLog::ACTION_CREATE,
+            AuditLog::ACTION_UPDATE,
+            AuditLog::ACTION_VIEW,
+            AuditLog::ACTION_ALLOCATE,
+            AuditLog::ACTION_DISCOUNT,
+            AuditLog::ACTION_UPLOAD,
+            AuditLog::ACTION_EXPORT,
+            'maintenance_execute',
+        ];
+        $userModels = array_values($users);
+        $storeModels = array_values($stores);
+        $customerModels = array_values($customers);
+        $invoiceModels = array_values($invoices);
+        $paymentModels = array_values($payments);
+        $allocationIds = PaymentAllocation::whereIn('payment_id', array_map(fn (Payment $payment): int => $payment->id, $paymentModels))
+            ->pluck('id')
+            ->all();
+        $discountIds = PaymentDiscount::where('reason', 'like', 'DEMO:%')->pluck('id')->all();
+        $attachmentIds = Attachment::where('file_path', 'like', 'demo/%')->pluck('id')->all();
+
+        for ($index = 0; $index < 40; $index++) {
+            $action = $actions[$index % count($actions)];
+            $user = $userModels[$index % count($userModels)];
+            $store = $storeModels[$index % count($storeModels)];
+            $target = $this->auditTargetForAction(
+                $action,
+                $index,
+                $customerModels,
+                $invoiceModels,
+                $paymentModels,
+                $allocationIds,
+                $discountIds,
+                $attachmentIds
+            );
+            $isGlobal = in_array($action, [AuditLog::ACTION_EXPORT, 'maintenance_execute'], true);
+
+            $log = AuditLog::create([
+                'user_id' => $user->id,
+                'user_name' => $user->name,
+                'action' => $action,
+                'action_label' => AuditLog::ACTION_LABELS[$action] ?? $action,
+                'auditable_type' => $target['type'],
+                'auditable_id' => $target['id'],
+                'auditable_label' => $target['label'],
+                'scope_type' => $isGlobal ? 'global' : 'store',
+                'business_store_id' => $isGlobal ? null : $store->id,
+                'actor_store_id' => $store->id,
+                'old_values' => ['demo' => $index],
+                'new_values' => ['demo' => $index + 1],
+                'changed_fields' => ['demo'],
+                'ip_address' => '127.0.0.1',
+                'user_agent' => 'DEMO local seed',
+                'request_method' => $action === AuditLog::ACTION_VIEW ? 'GET' : 'POST',
+                'request_url' => '/demo/local-seed',
+                'description' => sprintf('DEMO: %s audit log %02d', $action, $index + 1),
+                'metadata' => ['demo_seeded' => true, 'index' => $index + 1],
+                'change_payload' => ['summary' => ['title' => 'DEMO', 'subtitle' => 'local seed']],
+                'is_success' => true,
+            ]);
+
+            $timestamp = $index < 5
+                ? now()->subDays(130 + $index)
+                : now()->subDays($index % 30);
+            $log->forceFill([
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ])->saveQuietly();
+
+            $logs[] = $log;
+        }
+
         return [
-            'models' => [],
-            'summary' => [],
+            'models' => $logs,
+            'summary' => ['audit_logs' => count($logs)],
         ];
     }
 
@@ -580,9 +758,57 @@ class DevDemoSeeder extends Seeder
      */
     private function seedMaintenanceScenarios(array $users, array $customers, array $stores, array $invoices, array $payments): array
     {
+        $created = [];
+        $orphanInvoiceId = ((int) Invoice::max('id')) + 10000;
+        $orphanPaymentId = ((int) Payment::max('id')) + 10000;
+
+        $this->withRelaxedForeignKeys(function () use (&$created, $orphanInvoiceId, $orphanPaymentId, $users, $invoices): void {
+            $created['orphan_invoice_item'] = DB::table('invoice_items')->insertGetId([
+                'invoice_id' => $orphanInvoiceId,
+                'line_uid' => (string) \Illuminate\Support\Str::uuid(),
+                'item_name' => 'DEMO 孤立账单明细',
+                'item_description' => 'DEMO: orphan invoice item',
+                'quantity' => 1,
+                'unit_price' => 99,
+                'subtotal' => 99,
+                'sort_order' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $created['orphan_payment_allocation'] = DB::table('payment_allocations')->insertGetId([
+                'payment_id' => $orphanPaymentId,
+                'invoice_id' => $invoices['maintenanceA_2']->id,
+                'amount' => 88,
+                'allocated_by' => $users['admin']->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        });
+
+        $amountMismatch = $invoices['maintenanceA_2']->refresh();
+        DB::table('invoices')
+            ->where('id', $amountMismatch->id)
+            ->update([
+                'amount' => ((float) $amountMismatch->amount) + 123.45,
+                'description' => 'DEMO: maintenance amount mismatch invoice',
+                'updated_at' => now(),
+            ]);
+        $created['amount_mismatch_invoice'] = $amountMismatch->id;
+
+        $statusMismatch = $invoices['maintenanceA_3']->refresh();
+        DB::table('invoices')
+            ->where('id', $statusMismatch->id)
+            ->update([
+                'status' => 'paid',
+                'description' => 'DEMO: maintenance status mismatch invoice',
+                'updated_at' => now(),
+            ]);
+        $created['status_mismatch_invoice'] = $statusMismatch->id;
+
         return [
-            'models' => [],
-            'summary' => [],
+            'models' => $created,
+            'summary' => ['maintenance_anomalies' => count($created)],
         ];
     }
 
@@ -595,10 +821,190 @@ class DevDemoSeeder extends Seeder
      */
     private function syncStats(array $customers, array $stores): array
     {
+        $stats = [];
+        $statsService = app(CustomerStatsService::class);
+
+        foreach ($customers as $customer) {
+            foreach ($stores as $store) {
+                $stat = $statsService->syncCustomerStoreStats($customer->id, $store->id);
+
+                if ($stat !== null) {
+                    $stats[] = $stat;
+                }
+            }
+        }
+
         return [
-            'models' => [],
-            'summary' => [],
+            'models' => $stats,
+            'summary' => ['customer_store_stats' => count($stats)],
         ];
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+    private function shareTokenDefinitions(): array
+    {
+        return [
+            'fixed_single' => [
+                'token' => 'demo-fixed-single-token',
+                'invoice_keys' => ['shareA_1'],
+                'customer' => 'shareA',
+                'store' => 'A',
+                'created_by' => 'ownerA',
+                'expires_at' => now()->addMonths(3),
+                'type' => InvoiceShareToken::TYPE_FIXED,
+            ],
+            'fixed_multiple' => [
+                'token' => 'demo-fixed-multiple-token',
+                'invoice_keys' => ['shareA_1', 'shareA_2', 'shareA_3'],
+                'customer' => 'shareA',
+                'store' => 'A',
+                'created_by' => 'ownerA',
+                'expires_at' => now()->addMonths(3),
+                'type' => InvoiceShareToken::TYPE_FIXED,
+            ],
+            'dynamic_store_a' => [
+                'token' => 'demo-dynamic-store-a-token',
+                'invoice_keys' => ['debtA_1', 'debtA_2'],
+                'customer' => 'debtA',
+                'store' => 'A',
+                'created_by' => 'ownerA',
+                'expires_at' => now()->addMonths(2),
+                'type' => InvoiceShareToken::TYPE_DYNAMIC,
+            ],
+            'dynamic_store_b' => [
+                'token' => 'demo-dynamic-store-b-token',
+                'invoice_keys' => ['debtB_1', 'debtB_2'],
+                'customer' => 'debtB',
+                'store' => 'B',
+                'created_by' => 'ownerB',
+                'expires_at' => now()->addMonths(2),
+                'type' => InvoiceShareToken::TYPE_DYNAMIC,
+            ],
+            'expired_fixed' => [
+                'token' => 'demo-expired-fixed-token',
+                'invoice_keys' => ['overdueA_3'],
+                'customer' => 'overdueA',
+                'store' => 'A',
+                'created_by' => 'ownerA',
+                'expires_at' => now()->subDay(),
+                'type' => InvoiceShareToken::TYPE_FIXED,
+            ],
+            'access_log' => [
+                'token' => 'demo-access-log-token',
+                'invoice_keys' => ['shareA_3'],
+                'customer' => 'shareA',
+                'store' => 'A',
+                'created_by' => 'ownerA',
+                'expires_at' => now()->addMonth(),
+                'type' => InvoiceShareToken::TYPE_FIXED,
+                'log_access' => true,
+            ],
+        ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function attachmentDefinitions(): array
+    {
+        return [
+            ['slug' => 'invoice_image', 'type' => 'invoice', 'key' => 'attachmentA_1', 'filename' => 'DEMO-invoice-image.jpg', 'mime' => 'image/jpeg', 'size' => 128000, 'uploaded_by' => 'staffA'],
+            ['slug' => 'invoice_pdf', 'type' => 'invoice', 'key' => 'attachmentA_2', 'filename' => 'DEMO-invoice.pdf', 'mime' => 'application/pdf', 'size' => 256000, 'uploaded_by' => 'ownerA'],
+            ['slug' => 'invoice_text', 'type' => 'invoice', 'key' => 'shareA_1', 'filename' => 'DEMO-note.txt', 'mime' => 'text/plain', 'size' => 4096, 'uploaded_by' => 'staffA'],
+            ['slug' => 'invoice_docx', 'type' => 'invoice', 'key' => 'discountA_1', 'filename' => 'DEMO-contract.docx', 'mime' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'size' => 89000, 'uploaded_by' => 'ownerA'],
+            ['slug' => 'payment_image', 'type' => 'payment', 'key' => 'pay006', 'filename' => 'DEMO-payment-image.png', 'mime' => 'image/png', 'size' => 98000, 'uploaded_by' => 'staffA'],
+            ['slug' => 'payment_pdf', 'type' => 'payment', 'key' => 'pay002', 'filename' => 'DEMO-payment.pdf', 'mime' => 'application/pdf', 'size' => 145000, 'uploaded_by' => 'ownerA'],
+            ['slug' => 'payment_text', 'type' => 'payment', 'key' => 'pay024', 'filename' => 'DEMO-payment-note.txt', 'mime' => 'text/plain', 'size' => 2048, 'uploaded_by' => 'staffB'],
+            ['slug' => 'payment_doc', 'type' => 'payment', 'key' => 'pay025', 'filename' => 'DEMO-payment-doc.doc', 'mime' => 'application/msword', 'size' => 76000, 'uploaded_by' => 'admin'],
+        ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function uploadIntentDefinitions(): array
+    {
+        return [
+            ['slug' => 'intent_invoice_image', 'type' => 'invoice', 'key' => 'attachmentA_3', 'filename' => 'DEMO-intent-image.jpg', 'mime' => 'image/jpeg', 'size' => 110000, 'uploaded_by' => 'staffA', 'expires_at' => now()->addHour()],
+            ['slug' => 'intent_invoice_pdf', 'type' => 'invoice', 'key' => 'shareA_2', 'filename' => 'DEMO-intent.pdf', 'mime' => 'application/pdf', 'size' => 210000, 'uploaded_by' => 'ownerA', 'expires_at' => now()->addHours(2)],
+            ['slug' => 'intent_payment_text', 'type' => 'payment', 'key' => 'pay007', 'filename' => 'DEMO-intent-note.txt', 'mime' => 'text/plain', 'size' => 3072, 'uploaded_by' => 'staffA', 'expires_at' => now()->addHours(3), 'consumed_at' => now()->subMinutes(10)],
+            ['slug' => 'intent_payment_docx', 'type' => 'payment', 'key' => 'pay026', 'filename' => 'DEMO-intent.docx', 'mime' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'size' => 64000, 'uploaded_by' => 'staffB', 'expires_at' => now()->addHours(4)],
+        ];
+    }
+
+    /**
+     * @param  array<int, Customer>  $customers
+     * @param  array<int, Invoice>  $invoices
+     * @param  array<int, Payment>  $payments
+     * @param  array<int, int>  $allocationIds
+     * @param  array<int, int>  $discountIds
+     * @param  array<int, int>  $attachmentIds
+     * @return array{type: string|null, id: int|null, label: string|null}
+     */
+    private function auditTargetForAction(
+        string $action,
+        int $index,
+        array $customers,
+        array $invoices,
+        array $payments,
+        array $allocationIds,
+        array $discountIds,
+        array $attachmentIds
+    ): array {
+        return match ($action) {
+            AuditLog::ACTION_CREATE => [
+                'type' => Invoice::class,
+                'id' => $invoices[$index % count($invoices)]->id,
+                'label' => $invoices[$index % count($invoices)]->invoice_number,
+            ],
+            AuditLog::ACTION_UPDATE => [
+                'type' => Customer::class,
+                'id' => $customers[$index % count($customers)]->id,
+                'label' => $customers[$index % count($customers)]->name,
+            ],
+            AuditLog::ACTION_VIEW => [
+                'type' => Payment::class,
+                'id' => $payments[$index % count($payments)]->id,
+                'label' => $payments[$index % count($payments)]->payment_number,
+            ],
+            AuditLog::ACTION_ALLOCATE => [
+                'type' => PaymentAllocation::class,
+                'id' => $this->cyclicId($allocationIds, $index),
+                'label' => 'DEMO payment allocation',
+            ],
+            AuditLog::ACTION_DISCOUNT => [
+                'type' => PaymentDiscount::class,
+                'id' => $this->cyclicId($discountIds, $index),
+                'label' => 'DEMO payment discount',
+            ],
+            AuditLog::ACTION_UPLOAD => [
+                'type' => Attachment::class,
+                'id' => $this->cyclicId($attachmentIds, $index),
+                'label' => 'DEMO attachment',
+            ],
+            AuditLog::ACTION_EXPORT => [
+                'type' => Invoice::class,
+                'id' => $invoices[$index % count($invoices)]->id,
+                'label' => 'DEMO export',
+            ],
+            default => [
+                'type' => 'maintenance',
+                'id' => null,
+                'label' => 'DEMO maintenance execution',
+            ],
+        };
+    }
+
+    /**
+     * @param  array<int, int>  $ids
+     */
+    private function cyclicId(array $ids, int $index): ?int
+    {
+        return $ids === []
+            ? null
+            : $ids[$index % count($ids)];
     }
 
     private function creatorKeyForStore(string $storeKey): string
