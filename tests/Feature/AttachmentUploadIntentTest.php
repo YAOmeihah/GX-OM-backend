@@ -9,6 +9,7 @@ use App\Models\Role;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -60,6 +61,14 @@ class AttachmentUploadIntentTest extends TestCase
             'store_id' => $store->id,
             'created_by' => $this->admin->id,
         ]);
+    }
+
+    public function test_attachment_upload_intents_composite_index_uses_short_mysql_safe_name(): void
+    {
+        $this->assertContains(
+            'attachment_upload_intents_actor_timing_idx',
+            Schema::getIndexListing('attachment_upload_intents')
+        );
     }
 
     public function test_confirm_upload_rejects_path_without_matching_intent(): void
