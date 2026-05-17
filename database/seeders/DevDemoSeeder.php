@@ -1307,6 +1307,7 @@ class DevDemoSeeder extends Seeder
      * Run a block without demo auditing.
      *
      * @template T
+     *
      * @param  callable(): T  $callback
      * @return T
      */
@@ -1319,6 +1320,7 @@ class DevDemoSeeder extends Seeder
      * Temporarily relax foreign key constraints.
      *
      * @template T
+     *
      * @param  callable(): T  $callback
      * @return T
      */

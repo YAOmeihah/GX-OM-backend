@@ -2,11 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\Store;
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use Symfony\Component\Console\Command\Command;
-use Tests\TestCase;
-
 use App\Models\Attachment;
 use App\Models\AttachmentUploadIntent;
 use App\Models\AuditLog;
@@ -19,11 +14,15 @@ use App\Models\InvoiceShareTokenLog;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\PaymentDiscount;
-use App\Models\RuntimeConfig;
 use App\Models\Role;
+use App\Models\RuntimeConfig;
+use App\Models\Store;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Symfony\Component\Console\Command\Command;
+use Tests\TestCase;
 
 class DevSeedDemoCommandTest extends TestCase
 {
@@ -178,6 +177,37 @@ class DevSeedDemoCommandTest extends TestCase
             ->count());
         $this->assertGreaterThan(0, Invoice::where('description', 'like', 'DEMO: maintenance amount mismatch%')->count());
         $this->assertGreaterThan(0, Invoice::where('description', 'like', 'DEMO: maintenance status mismatch%')->count());
+    }
+
+    public function test_seed_demo_is_idempotent_and_clean_removes_demo_data(): void
+    {
+        $this->artisan('dev:seed-demo')->assertExitCode(Command::SUCCESS);
+        $firstCounts = $this->demoCounts();
+
+        $this->artisan('dev:seed-demo')->assertExitCode(Command::SUCCESS);
+        $secondCounts = $this->demoCounts();
+
+        $this->assertSame($firstCounts, $secondCounts);
+        $this->assertSame(3, $secondCounts['stores']);
+        $this->assertSame(6, $secondCounts['users']);
+        $this->assertSame(15, $secondCounts['customers']);
+        $this->assertSame(45, $secondCounts['invoices']);
+        $this->assertBetween(25, 30, $secondCounts['payments']);
+        $this->assertBetween(30, 40, $secondCounts['allocations']);
+        $this->assertSame(12, $secondCounts['discounts']);
+        $this->assertSame(6, $secondCounts['share_tokens']);
+        $this->assertSame(8, $secondCounts['attachments']);
+        $this->assertSame(4, $secondCounts['upload_intents']);
+        $this->assertSame(40, $secondCounts['audit_logs']);
+        $this->assertDatabaseHas('runtime_configs', ['key' => 's3-compat']);
+
+        $this->artisan('dev:seed-demo', ['--clean' => true])->assertExitCode(Command::SUCCESS);
+
+        foreach ($this->demoCounts() as $count) {
+            $this->assertSame(0, $count);
+        }
+
+        $this->assertDatabaseMissing('runtime_configs', ['key' => 's3-compat']);
     }
 
     private function createMinimalDemoRows(): void
