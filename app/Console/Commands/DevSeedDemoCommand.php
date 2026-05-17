@@ -15,6 +15,8 @@ class DevSeedDemoCommand extends Command
 
     public function handle(DevDemoSeeder $seeder): int
     {
+        $seeder->setCommand($this);
+
         $env = config('app.env');
         if (! in_array($env, ['local', 'testing'], true) && ! $this->option('force')) {
             $this->error('Refusing to seed demo data outside local/testing. Use --force to override.');

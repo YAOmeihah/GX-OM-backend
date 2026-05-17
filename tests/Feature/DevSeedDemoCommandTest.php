@@ -15,6 +15,7 @@ use App\Models\InvoiceShareToken;
 use App\Models\InvoiceShareTokenLog;
 use App\Models\Payment;
 use App\Models\RuntimeConfig;
+use App\Models\Role;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -87,6 +88,37 @@ class DevSeedDemoCommandTest extends TestCase
         $this->assertSame(0, AttachmentUploadIntent::where('file_path', 'like', 'demo/%')->count());
         $this->assertSame(0, InvoiceShareToken::where('token', 'like', 'demo-%')->count());
         $this->assertSame(0, RuntimeConfig::where('key', 'like', 'demo.%')->count());
+    }
+
+    public function test_seed_creates_demo_stores_users_customers_and_roles(): void
+    {
+        $this->artisan('dev:seed-demo')
+            ->expectsOutputToContain('Demo data seeded')
+            ->assertExitCode(Command::SUCCESS);
+
+        $this->assertSame(3, Store::where('code', 'like', 'DEMO-%')->count());
+        $this->assertSame(6, User::where('email', 'like', 'demo.%@example.com')->count());
+        $this->assertSame(15, Customer::where('remarks', 'like', 'DEMO:%')->count());
+
+        $admin = User::where('email', 'demo.admin@example.com')->firstOrFail();
+        $ownerA = User::where('email', 'demo.owner.a@example.com')->firstOrFail();
+        $staffA = User::where('email', 'demo.staff.a@example.com')->firstOrFail();
+        $multi = User::where('email', 'demo.multi@example.com')->firstOrFail();
+
+        $storeA = Store::where('code', 'DEMO-A')->firstOrFail();
+        $storeB = Store::where('code', 'DEMO-B')->firstOrFail();
+
+        $this->assertTrue($admin->hasRole('admin'));
+        $this->assertTrue($ownerA->hasRole('store_owner'));
+        $this->assertTrue($staffA->hasRole('store_staff'));
+        $this->assertTrue($ownerA->belongsToStore($storeA->id));
+        $this->assertTrue($multi->belongsToStore($storeA->id));
+        $this->assertTrue($multi->belongsToStore($storeB->id));
+
+        $this->assertDatabaseHas('roles', ['slug' => 'admin']);
+        $this->assertDatabaseHas('roles', ['slug' => 'store_owner']);
+        $this->assertDatabaseHas('roles', ['slug' => 'store_staff']);
+        $this->assertGreaterThan(0, Role::where('slug', 'admin')->firstOrFail()->permissions()->count());
     }
 
     private function createMinimalDemoRows(): void
