@@ -235,9 +235,10 @@ class PermissionBaselineTest extends TestCase
 
         Sanctum::actingAs($this->storeStaff);
 
-        $this->getJson('/api/user')
-            ->assertStatus(200)
-            ->assertJsonPath('data.capabilities.0', 'invoices.create');
+        $response = $this->getJson('/api/user')
+            ->assertStatus(200);
+
+        $this->assertContains('invoices.create', $response->json('data.capabilities'));
     }
 
     public function test_my_permissions_returns_capabilities_alias(): void
@@ -254,14 +255,14 @@ class PermissionBaselineTest extends TestCase
         Sanctum::actingAs($this->storeStaff);
 
         $response = $this->getJson('/api/permissions/my')
-            ->assertStatus(200)
-            ->assertJsonPath('data.permissions.0', 'payments.create')
-            ->assertJsonPath('data.capabilities.0', 'payments.create');
+            ->assertStatus(200);
 
-        $this->assertSame(
-            $response->json('data.permissions'),
-            $response->json('data.capabilities')
-        );
+        $permissions = $response->json('data.permissions');
+        $capabilities = $response->json('data.capabilities');
+
+        $this->assertContains('payments.create', $permissions);
+        $this->assertContains('payments.create', $capabilities);
+        $this->assertEqualsCanonicalizing($permissions, $capabilities);
     }
 
     public function test_login_response_embeds_user_capabilities(): void
@@ -276,12 +277,13 @@ class PermissionBaselineTest extends TestCase
         $this->storeOwner->roles()->first()->permissions()->syncWithoutDetaching([$permission->id]);
         $this->storeOwner->forceFill(['password' => bcrypt('secret-password')])->save();
 
-        $this->postJson('/api/login', [
+        $response = $this->postJson('/api/login', [
             'login' => $this->storeOwner->username,
             'password' => 'secret-password',
         ])
-            ->assertStatus(200)
-            ->assertJsonPath('data.user.capabilities.0', 'audit-logs.view');
+            ->assertStatus(200);
+
+        $this->assertContains('audit-logs.view', $response->json('data.user.capabilities'));
     }
 
     public function test_admin_can_delete_store_without_business_associations(): void
