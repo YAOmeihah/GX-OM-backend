@@ -41,7 +41,10 @@ class AutoAllocateRequest extends FormRequest
                 Rule::in(['oldest_first', 'due_date_first', 'smallest_first', 'largest_first', 'overdue_first']),
             ],
             'confirm_excess' => 'nullable|boolean',
-            'include_discount' => 'nullable|boolean',
+            'include_discount' => [
+                'nullable',
+                Rule::notIn([true, 1, '1', 'true', 'on', 'yes']),
+            ],
         ];
     }
 
@@ -52,6 +55,7 @@ class AutoAllocateRequest extends FormRequest
     {
         return [
             'strategy.in' => '分配策略不正确，可选值：oldest_first, due_date_first, smallest_first, largest_first, overdue_first',
+            'include_discount.not_in' => '自动分配不支持自动减免，请使用独立减免或一键清账流程',
         ];
     }
 

@@ -16,6 +16,7 @@ use App\Services\PaymentDiscountService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 /**
  * @group 还款管理
@@ -649,13 +650,12 @@ class PaymentController extends ApiController
     /**
      * 获取自动分配建议
      *
-     * 根据指定策略获取还款的自动分配建议，可包含优惠减免建议。
+     * 根据指定策略获取还款的自动分配建议。
      * 需要管理员或店长权限。
      *
      * @urlParam payment integer required 还款ID Example: 1
      *
      * @queryParam strategy string 分配策略，可选值：oldest_first(最早优先)、due_date_first(到期日优先)、smallest_first(最小金额优先)、largest_first(最大金额优先)、overdue_first(逾期优先)，默认oldest_first Example: oldest_first
-     * @queryParam include_discount boolean 是否包含优惠减免建议，默认true Example: true
      *
      * @response 200 scenario="获取成功" {
      *   "success": true,
@@ -715,15 +715,23 @@ class PaymentController extends ApiController
         // 使用 Policy 进行权限检查
         $this->authorize('autoAllocate', $payment);
 
+        $request->validate([
+            'include_discount' => [
+                'nullable',
+                Rule::notIn([true, 1, '1', 'true', 'on', 'yes']),
+            ],
+        ], [
+            'include_discount.not_in' => '自动分配建议不支持自动减免，请使用独立减免或一键清账流程',
+        ]);
+
         $strategy = PaymentAllocationStrategy::fromString(
             $request->input('strategy', 'oldest_first')
         );
 
         $allocationService = $this->allocations;
 
-        // 获取包含优惠减免的分配建议
-        $includeDiscount = $request->input('include_discount', true);
-        $suggestion = $allocationService->getAllocationSuggestionWithDiscount($payment, $strategy, $includeDiscount);
+        // 自动分配只建议还款金额如何分配，不隐式创建或建议减免。
+        $suggestion = $allocationService->getAllocationSuggestion($payment, $strategy);
 
         // 检测超额还款
         $excessInfo = $allocationService->detectExcessPayment($payment);
@@ -750,7 +758,6 @@ class PaymentController extends ApiController
      *
      * @bodyParam strategy string 分配策略，可选值：oldest_first、due_date_first、smallest_first、largest_first、overdue_first，默认oldest_first Example: oldest_first
      * @bodyParam confirm_excess boolean 确认超额还款（当检测到超额时需要设为true才能继续） Example: false
-     * @bodyParam include_discount boolean 是否包含优惠减免处理，默认true Example: true
      *
      * @response 200 scenario="分配成功" {
      *   "success": true,
@@ -828,45 +835,22 @@ class PaymentController extends ApiController
         }
 
         try {
-            $includeDiscount = $validated['include_discount'] ?? true;
+            $allocations = $allocationService->autoAllocate($payment, $strategy);
 
-            if ($includeDiscount) {
-                // 使用支持优惠减免的自动分配
-                $result = $allocationService->autoAllocateWithDiscount($payment, $strategy, true, Auth::id());
-
-                if (empty($result['allocations']) && empty($result['discounts'])) {
-                    return $this->errorResponse('没有找到可分配的账单', 422);
-                }
-
-                // 重新加载还款数据以获取最新状态
-                $payment->refresh();
-                $payment->load(['customer', 'store', 'allocations.invoice', 'discounts.invoice', 'receivedBy:id,name', 'attachments']);
-
-                // 确保 received_by 返回的是对象
-                if ($payment->relationLoaded('receivedBy')) {
-                    $payment->setAttribute('received_by', $payment->receivedBy);
-                }
-
-                return $this->successResponse($payment, $result['message']);
-            } else {
-                // 传统的自动分配（不包含优惠减免）
-                $allocations = $allocationService->autoAllocate($payment, $strategy);
-
-                if (empty($allocations)) {
-                    return $this->errorResponse('没有找到可分配的账单', 422);
-                }
-
-                // 重新加载还款数据以获取最新状态
-                $payment->refresh();
-                $payment->load(['customer', 'store', 'allocations.invoice', 'receivedBy:id,name', 'attachments']);
-
-                // 确保 received_by 返回的是对象
-                if ($payment->relationLoaded('receivedBy')) {
-                    $payment->setAttribute('received_by', $payment->receivedBy);
-                }
-
-                return $this->successResponse($payment, '自动分配完成');
+            if (empty($allocations)) {
+                return $this->errorResponse('没有找到可分配的账单', 422);
             }
+
+            // 重新加载还款数据以获取最新状态
+            $payment->refresh();
+            $payment->load(['customer', 'store', 'allocations.invoice', 'receivedBy:id,name', 'attachments']);
+
+            // 确保 received_by 返回的是对象
+            if ($payment->relationLoaded('receivedBy')) {
+                $payment->setAttribute('received_by', $payment->receivedBy);
+            }
+
+            return $this->successResponse($payment, '自动分配完成');
 
         } catch (\InvalidArgumentException $e) {
             return $this->errorResponse('自动分配失败：'.$e->getMessage(), 422);
@@ -875,7 +859,6 @@ class PaymentController extends ApiController
                 'user_id' => Auth::id(),
                 'payment_id' => $payment->id ?? null,
                 'strategy' => $validated['strategy'] ?? null,
-                'include_discount' => $validated['include_discount'] ?? null,
                 'exception' => get_class($e),
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),

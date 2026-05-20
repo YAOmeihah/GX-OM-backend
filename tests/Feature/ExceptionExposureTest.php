@@ -161,7 +161,6 @@ class ExceptionExposureTest extends TestCase
 
         $response = $this->postJson("/api/payments/{$payment->id}/auto-allocate", [
             'strategy' => 'oldest_first',
-            'include_discount' => false,
         ]);
 
         $response->assertStatus(500)

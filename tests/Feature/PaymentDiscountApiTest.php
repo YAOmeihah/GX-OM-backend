@@ -734,6 +734,34 @@ class PaymentDiscountApiTest extends TestCase
     }
 
     /** @test */
+    public function it_rejects_discount_handling_on_auto_allocate()
+    {
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->postJson("/api/payments/{$this->payment->id}/auto-allocate", [
+            'strategy' => 'oldest_first',
+            'include_discount' => true,
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['include_discount']);
+
+        $this->assertDatabaseCount('payment_allocations', 0);
+        $this->assertDatabaseCount('payment_discounts', 0);
+    }
+
+    /** @test */
+    public function it_rejects_discount_handling_on_allocation_suggestion()
+    {
+        Sanctum::actingAs($this->storeOwner);
+
+        $response = $this->getJson("/api/payments/{$this->payment->id}/allocation-suggestion?include_discount=true");
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['include_discount']);
+    }
+
+    /** @test */
     public function it_prevents_stale_model_over_allocation_with_fresh_locked_state()
     {
         $payment = Payment::factory()->create([
