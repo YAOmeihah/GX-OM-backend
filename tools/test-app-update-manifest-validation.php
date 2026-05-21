@@ -25,12 +25,17 @@ try {
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL);
 
     assertCommandFails("php " . escapeshellarg($validator) . " " . escapeshellarg($manifest), 'packageName must be com.java.gx_om');
+    assertCommandFails("php " . escapeshellarg($validator) . " --expected-version-code=18 " . escapeshellarg($manifest), 'packageName must be com.java.gx_om');
 
     $json = json_decode((string) file_get_contents($manifest), true);
     $json['packageName'] = 'com.java.gx_om';
     file_put_contents($manifest, json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL);
 
     assertCommandSucceeds("php " . escapeshellarg($validator) . " " . escapeshellarg($manifest) . " --apk=" . escapeshellarg($apk) . " --expected-version-code=18 --expected-version-name=1.0.17 --expected-certificate-sha256=7f9401a701fd82ca10d1a598321cdeeee4e9becbea77479b9afd9d4c684fc548");
+    assertCommandSucceeds("php " . escapeshellarg($validator) . " --apk=" . escapeshellarg($apk) . " --expected-version-code=18 --expected-version-name=1.0.17 --expected-certificate-sha256=7f9401a701fd82ca10d1a598321cdeeee4e9becbea77479b9afd9d4c684fc548 " . escapeshellarg($manifest));
+    $secondManifest = $tmp . '/second-update.json';
+    copy($manifest, $secondManifest);
+    assertCommandFails("php " . escapeshellarg($validator) . " " . escapeshellarg($manifest) . " " . escapeshellarg($secondManifest), 'Multiple manifest paths provided');
     assertCommandFails("php " . escapeshellarg($validator) . " " . escapeshellarg($manifest) . " --apk=" . escapeshellarg($apk) . " --expected-version-code=19", 'versionCode does not match expected value');
     file_put_contents($apk, 'changed apk bytes');
     assertCommandFails("php " . escapeshellarg($validator) . " " . escapeshellarg($manifest) . " --apk=" . escapeshellarg($apk), 'sha256 does not match APK');
