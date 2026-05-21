@@ -62,7 +62,8 @@ if (! is_string($json['url']) || ! isTrustedAppUpdateUrl($json['url'])) {
     $errors[] = 'url must use the trusted app_update HTTPS host';
 }
 
-if (! is_string($json['sha256']) || ! isLowercaseSha256($json['sha256'])) {
+$manifestSha256IsValid = is_string($json['sha256']) && isLowercaseSha256($json['sha256']);
+if (! $manifestSha256IsValid) {
     $errors[] = 'sha256 must be 64 lowercase hex characters';
 }
 
@@ -97,7 +98,7 @@ if (isset($options['apk'])) {
     $apkPath = (string) $options['apk'];
     if (! is_file($apkPath)) {
         $errors[] = "APK not found: {$apkPath}";
-    } else {
+    } elseif ($manifestSha256IsValid) {
         $apkSha256 = hash_file('sha256', $apkPath);
         if ($apkSha256 === false || strtolower($apkSha256) !== $json['sha256']) {
             $errors[] = 'sha256 does not match APK';
