@@ -2,7 +2,23 @@
 
 declare(strict_types=1);
 
-$manifestPath = $argv[1] ?? __DIR__ . '/../public/app_update/update.json';
+$optionNames = [
+    'apk',
+    'expected-version-code',
+    'expected-version-name',
+    'expected-certificate-sha256',
+];
+$options = getopt('', [
+    'apk:',
+    'expected-version-code:',
+    'expected-version-name:',
+    'expected-certificate-sha256:',
+]);
+$options = array_merge($options, parseLongOptions($argv, $optionNames));
+
+$manifestPath = ($argv[1] ?? null) !== null && ! str_starts_with($argv[1], '-')
+    ? $argv[1]
+    : __DIR__ . '/../public/app_update/update.json';
 
 if (!is_file($manifestPath)) {
     fwrite(STDERR, "Manifest not found: {$manifestPath}\n");
@@ -79,6 +95,36 @@ if ($json['versionCode'] === 100 && $json['versionName'] === '1.0.0' && $json['f
     $errors[] = 'manifest must not advertise the old forced phantom version';
 }
 
+if (isset($options['apk'])) {
+    $apkPath = (string) $options['apk'];
+    if (! is_file($apkPath)) {
+        $errors[] = "APK not found: {$apkPath}";
+    } else {
+        $apkSha256 = hash_file('sha256', $apkPath);
+        if ($apkSha256 === false || strtolower($apkSha256) !== $json['sha256']) {
+            $errors[] = 'sha256 does not match APK';
+        }
+    }
+}
+
+if (isset($options['expected-version-code'])) {
+    $expectedVersionCode = filter_var($options['expected-version-code'], FILTER_VALIDATE_INT);
+    if ($expectedVersionCode === false || $json['versionCode'] !== $expectedVersionCode) {
+        $errors[] = 'versionCode does not match expected value';
+    }
+}
+
+if (isset($options['expected-version-name']) && $json['versionName'] !== (string) $options['expected-version-name']) {
+    $errors[] = 'versionName does not match expected value';
+}
+
+if (isset($options['expected-certificate-sha256'])) {
+    $expectedCertificate = normalizeFingerprint((string) $options['expected-certificate-sha256']);
+    if (normalizeFingerprint((string) $json['certificateSha256']) !== $expectedCertificate) {
+        $errors[] = 'certificateSha256 does not match expected value';
+    }
+}
+
 if ($errors !== []) {
     foreach ($errors as $error) {
         fwrite(STDERR, "{$error}\n");
@@ -91,6 +137,36 @@ fwrite(STDOUT, "Manifest valid: {$manifestPath}\n");
 function normalizeFingerprint(string $value): string
 {
     return strtolower(str_replace(':', '', trim($value)));
+}
+
+/**
+ * getopt() ignores long options after the first positional argument.
+ */
+function parseLongOptions(array $argv, array $optionNames): array
+{
+    $options = [];
+    $optionLookup = array_fill_keys($optionNames, true);
+
+    for ($i = 1, $count = count($argv); $i < $count; $i++) {
+        $argument = $argv[$i];
+        if (! str_starts_with($argument, '--')) {
+            continue;
+        }
+
+        $option = substr($argument, 2);
+        $value = null;
+        if (str_contains($option, '=')) {
+            [$option, $value] = explode('=', $option, 2);
+        } elseif (($optionLookup[$option] ?? false) && isset($argv[$i + 1]) && ! str_starts_with($argv[$i + 1], '-')) {
+            $value = $argv[++$i];
+        }
+
+        if (($optionLookup[$option] ?? false) && $value !== null) {
+            $options[$option] = $value;
+        }
+    }
+
+    return $options;
 }
 
 function isLowercaseSha256(string $value): bool
