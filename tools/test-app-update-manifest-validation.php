@@ -35,6 +35,9 @@ try {
     assertCommandSucceeds("php " . escapeshellarg($validator) . " --apk=" . escapeshellarg($apk) . " --expected-version-code=18 --expected-version-name=1.0.17 --expected-certificate-sha256=7f9401a701fd82ca10d1a598321cdeeee4e9becbea77479b9afd9d4c684fc548 " . escapeshellarg($manifest));
     assertCommandSucceeds("php " . escapeshellarg($validator) . " --apk " . escapeshellarg($apk) . " " . escapeshellarg($manifest) . " --expected-version-code 18");
     assertCommandSucceeds("php " . escapeshellarg($validator) . " " . escapeshellarg($manifest) . " --apk " . escapeshellarg($apk) . " --expected-version-code 18");
+    assertCommandFails("php " . escapeshellarg($validator) . " " . escapeshellarg($manifest) . " --apk", 'Option --apk requires a value');
+    assertCommandFails("php " . escapeshellarg($validator) . " " . escapeshellarg($manifest) . " --expected-version-code", 'Option --expected-version-code requires a value');
+    assertCommandFails("php " . escapeshellarg($validator) . " " . escapeshellarg($manifest) . " --apkk " . escapeshellarg($apk), 'Unknown option: --apkk');
     $secondManifest = $tmp . '/second-update.json';
     copy($manifest, $secondManifest);
     assertCommandFails("php " . escapeshellarg($validator) . " " . escapeshellarg($manifest) . " " . escapeshellarg($secondManifest), 'Multiple manifest paths provided');

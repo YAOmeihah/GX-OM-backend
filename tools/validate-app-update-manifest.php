@@ -8,15 +8,7 @@ $optionNames = [
     'expected-version-name',
     'expected-certificate-sha256',
 ];
-$options = getopt('', [
-    'apk:',
-    'expected-version-code:',
-    'expected-version-name:',
-    'expected-certificate-sha256:',
-]);
-$options = array_merge($options, parseLongOptions($argv, $optionNames));
-
-$manifestPath = resolveManifestPath($argv, $optionNames);
+[$options, $manifestPath] = parseArguments($argv, $optionNames);
 
 if (!is_file($manifestPath)) {
     fwrite(STDERR, "Manifest not found: {$manifestPath}\n");
@@ -138,17 +130,16 @@ function normalizeFingerprint(string $value): string
     return strtolower(str_replace(':', '', trim($value)));
 }
 
-/**
- * getopt() ignores long options after the first positional argument.
- */
-function parseLongOptions(array $argv, array $optionNames): array
+function parseArguments(array $argv, array $optionNames): array
 {
     $options = [];
     $optionLookup = array_fill_keys($optionNames, true);
+    $manifestPaths = [];
 
     for ($i = 1, $count = count($argv); $i < $count; $i++) {
         $argument = $argv[$i];
         if (! str_starts_with($argument, '--')) {
+            $manifestPaths[] = $argument;
             continue;
         }
 
@@ -156,32 +147,28 @@ function parseLongOptions(array $argv, array $optionNames): array
         $value = null;
         if (str_contains($option, '=')) {
             [$option, $value] = explode('=', $option, 2);
-        } elseif (($optionLookup[$option] ?? false) && isset($argv[$i + 1]) && ! str_starts_with($argv[$i + 1], '-')) {
+        }
+
+        if (! ($optionLookup[$option] ?? false)) {
+            fwrite(STDERR, "Unknown option: --{$option}\n");
+            exit(1);
+        }
+
+        if ($value === null) {
+            if (! isset($argv[$i + 1]) || str_starts_with($argv[$i + 1], '--')) {
+                fwrite(STDERR, "Option --{$option} requires a value\n");
+                exit(1);
+            }
+
             $value = $argv[++$i];
         }
 
-        if (($optionLookup[$option] ?? false) && $value !== null) {
-            $options[$option] = $value;
-        }
-    }
-
-    return $options;
-}
-
-function resolveManifestPath(array $argv, array $optionNames): string
-{
-    $manifestPaths = [];
-
-    for ($i = 1, $count = count($argv); $i < $count; $i++) {
-        $argument = $argv[$i];
-        if (str_starts_with($argument, '--')) {
-            if (optionRequiresValue($argument, $optionNames) && isset($argv[$i + 1])) {
-                $i++;
-            }
-            continue;
+        if ($value === '') {
+            fwrite(STDERR, "Option --{$option} requires a value\n");
+            exit(1);
         }
 
-        $manifestPaths[] = $argument;
+        $options[$option] = $value;
     }
 
     if (count($manifestPaths) > 1) {
@@ -189,17 +176,7 @@ function resolveManifestPath(array $argv, array $optionNames): string
         exit(1);
     }
 
-    return $manifestPaths[0] ?? __DIR__ . '/../public/app_update/update.json';
-}
-
-function optionRequiresValue(string $argument, array $optionNames): bool
-{
-    $option = substr($argument, 2);
-    if (str_contains($option, '=')) {
-        return false;
-    }
-
-    return in_array($option, $optionNames, true);
+    return [$options, $manifestPaths[0] ?? __DIR__ . '/../public/app_update/update.json'];
 }
 
 function isLowercaseSha256(string $value): bool
