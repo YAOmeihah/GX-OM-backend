@@ -17,7 +17,8 @@ class InvoiceBusinessController extends ApiController
         $validated = $request->validate([
             'store_id' => ['required', 'integer', 'exists:stores,id'],
             'customer_id' => ['required', 'integer', 'exists:customers,id'],
-            'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:50'],
+            'page' => ['sometimes', 'integer', 'min:1'],
         ]);
 
         try {
@@ -25,7 +26,7 @@ class InvoiceBusinessController extends ApiController
                 Auth::user(),
                 (int) $validated['store_id'],
                 (int) $validated['customer_id'],
-                (int) ($validated['per_page'] ?? 15),
+                (int) ($validated['per_page'] ?? 20),
             ));
         } catch (HttpException $exception) {
             return $this->errorResponse($exception->getMessage(), $exception->getStatusCode());

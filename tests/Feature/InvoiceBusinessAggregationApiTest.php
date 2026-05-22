@@ -95,14 +95,29 @@ class InvoiceBusinessAggregationApiTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.summary.outstanding_count', 3)
+            ->assertJsonPath('data.summary.actual_remaining_total', '420.00')
             ->assertJsonPath('data.total', 3)
             ->assertJsonPath('data.per_page', 2)
             ->assertJsonPath('data.data.0.id', $oldest->id)
+            ->assertJsonPath('data.data.0.total_discount_amount', '10.00')
+            ->assertJsonPath('data.data.0.actual_remaining_amount', '70.00')
             ->assertJsonPath('data.data.1.id', $middle->id);
 
-        $this->assertEquals(420.00, $response->json('data.summary.actual_remaining_total'));
-        $this->assertEquals(70.00, $response->json('data.data.0.actual_remaining_amount'));
         $this->assertNotContains($newest->id, collect($response->json('data.data'))->pluck('id'));
+    }
+
+    public function test_allocatable_uses_contract_default_and_maximum_page_size(): void
+    {
+        $this->createInvoice();
+
+        Sanctum::actingAs($this->user);
+
+        $this->getJson("/api/invoices/allocatable?store_id={$this->store->id}&customer_id={$this->customer->id}")
+            ->assertOk()
+            ->assertJsonPath('data.per_page', 20);
+
+        $this->getJson("/api/invoices/allocatable?store_id={$this->store->id}&customer_id={$this->customer->id}&per_page=51")
+            ->assertStatus(422);
     }
 
     public function test_allocatable_returns_403_for_store_outside_user_scope(): void
@@ -153,13 +168,24 @@ class InvoiceBusinessAggregationApiTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.summary.task_count', 3)
+            ->assertJsonPath('data.summary.actual_remaining_total', '300.00')
             ->assertJsonPath('data.total', 3)
             ->assertJsonPath('data.data.0.id', $first->id)
+            ->assertJsonPath('data.data.0.actual_remaining_amount', '100.00')
             ->assertJsonPath('data.data.1.id', $second->id);
 
-        $this->assertEquals(300.00, $response->json('data.summary.actual_remaining_total'));
-        $this->assertEquals(100.00, $response->json('data.data.0.actual_remaining_amount'));
         $this->assertNotContains($third->id, collect($response->json('data.data'))->pluck('id'));
+    }
+
+    public function test_today_unpaid_print_tasks_use_contract_default_page_size(): void
+    {
+        $this->createInvoice(['created_at' => '2026-05-22 08:00:00']);
+
+        Sanctum::actingAs($this->user);
+
+        $this->getJson("/api/print-tasks/today-unpaid?store_id={$this->store->id}&date=2026-05-22")
+            ->assertOk()
+            ->assertJsonPath('data.per_page', 50);
     }
 
     public function test_print_details_returns_invoices_with_items_in_requested_order(): void

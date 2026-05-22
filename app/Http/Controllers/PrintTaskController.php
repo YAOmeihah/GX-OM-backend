@@ -17,6 +17,7 @@ class PrintTaskController extends ApiController
             'store_id' => ['required', 'integer', 'exists:stores,id'],
             'date' => ['sometimes', 'date_format:Y-m-d'],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'page' => ['sometimes', 'integer', 'min:1'],
         ]);
 
         try {
@@ -24,7 +25,7 @@ class PrintTaskController extends ApiController
                 Auth::user(),
                 (int) $validated['store_id'],
                 $validated['date'] ?? now()->toDateString(),
-                (int) ($validated['per_page'] ?? 15),
+                (int) ($validated['per_page'] ?? 50),
             ));
         } catch (HttpException $exception) {
             return $this->errorResponse($exception->getMessage(), $exception->getStatusCode());

@@ -77,7 +77,7 @@ class InvoiceBusinessQueryService
         }
 
         return collect($invoiceIds)
-            ->map(fn (int $invoiceId) => $this->decorateInvoice($invoices->get($invoiceId)))
+            ->map(fn (int $invoiceId) => $this->invoicePayload($invoices->get($invoiceId)))
             ->values();
     }
 
@@ -108,23 +108,29 @@ class InvoiceBusinessQueryService
             ->sum(DB::raw($this->actualRemainingExpression()));
 
         $paginator = $query->paginate($perPage);
-        $paginator->getCollection()->transform(fn (Invoice $invoice) => $this->decorateInvoice($invoice));
+        $paginator->getCollection()->transform(fn (Invoice $invoice) => $this->invoicePayload($invoice));
 
         $data = $paginator->toArray();
         $data['summary'] = [
             $summaryKeys['count_key'] => $count,
-            $summaryKeys['total_key'] => round($total, 2),
+            $summaryKeys['total_key'] => $this->formatMoney($total),
         ];
 
         return $data;
     }
 
-    private function decorateInvoice(Invoice $invoice): Invoice
+    private function invoicePayload(Invoice $invoice): array
     {
-        $invoice->total_discount_amount = $invoice->total_discount_amount;
-        $invoice->actual_remaining_amount = $invoice->actual_remaining_amount;
+        $data = $invoice->toArray();
+        $data['total_discount_amount'] = $this->formatMoney($invoice->total_discount_amount);
+        $data['actual_remaining_amount'] = $this->formatMoney($invoice->actual_remaining_amount);
 
-        return $invoice;
+        return $data;
+    }
+
+    private function formatMoney(float|int|string|null $amount): string
+    {
+        return number_format((float) $amount, 2, '.', '');
     }
 
     private function ensureStoreVisible(User $user, int $storeId): void
