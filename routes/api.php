@@ -6,9 +6,11 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ConfigController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\InvoiceBusinessController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\InvoiceItemController;
 use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\PrintTaskController;
 use App\Http\Controllers\PublicInvoiceController;
 use App\Http\Controllers\StoreController;
 use App\Http\Controllers\UserController;
@@ -71,6 +73,9 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // 账单相关路由
+    Route::get('invoices/allocatable', [InvoiceBusinessController::class, 'allocatable']);
+    Route::post('invoices/print-details', [InvoiceBusinessController::class, 'printDetails']);
+    Route::get('print-tasks/today-unpaid', [PrintTaskController::class, 'todayUnpaid']);
     Route::apiResource('invoices', InvoiceController::class);
 
     // 账单明细相关路由
