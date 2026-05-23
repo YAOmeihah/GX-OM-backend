@@ -59,6 +59,7 @@ class PermissionSeeder extends Seeder
 
             // 配置权限
             ['name' => '系统配置', 'slug' => 'config.manage', 'module' => 'config', 'description' => '管理系统配置（S3等）'],
+            ['name' => '系统更新', 'slug' => 'system-updates.manage', 'module' => 'system', 'description' => '检查、下载、安装和回滚系统更新'],
 
             // 附件权限
             ['name' => '上传附件', 'slug' => 'attachments.upload', 'module' => 'attachments', 'description' => '上传附件文件'],
