@@ -2,10 +2,14 @@
 
 namespace App\Services\SystemUpdate;
 
+use App\Models\SystemUpdateRun;
+use Throwable;
+
 class SystemUpdateService
 {
     public function __construct(
         private readonly GitHubReleaseClient $githubReleaseClient,
+        private readonly InPlaceReleaseInstaller $installer,
     ) {}
 
     /**
@@ -59,6 +63,68 @@ class SystemUpdateService
             'commit' => $metadata['commit'] ?? null,
             'build_time' => $metadata['build_time'] ?? null,
         ];
+    }
+
+    /**
+     * @param  array{tag: string, sha256: string, download_url?: string|null}  $payload
+     * @return array<string, mixed>
+     */
+    public function install(array $payload): array
+    {
+        $tag = $payload['tag'];
+        $downloadUrl = $payload['download_url'] ?? null;
+
+        if ($downloadUrl === null) {
+            $latest = $this->githubReleaseClient->latestRelease();
+
+            if (($latest['tag'] ?? null) !== $tag) {
+                throw new \UnexpectedValueException('Requested release tag does not match the latest release.');
+            }
+
+            $downloadUrl = (string) ($latest['package']['download_url'] ?? '');
+        }
+
+        if ($downloadUrl === '') {
+            throw new \UnexpectedValueException('Release package download URL is missing.');
+        }
+
+        $run = SystemUpdateRun::create([
+            'actor_user_id' => auth()->id(),
+            'tag' => $tag,
+            'version' => ltrim($tag, 'v'),
+            'status' => 'running',
+            'step' => 'installing',
+            'package_sha256' => strtolower($payload['sha256']),
+            'started_at' => now(),
+            'log_lines' => ['Started system update install.'],
+        ]);
+
+        try {
+            $result = $this->installer->install($tag, $downloadUrl, $payload['sha256']);
+
+            $run->update([
+                'status' => 'completed',
+                'step' => 'completed',
+                'backup_path' => $result['backup_path'] ?? null,
+                'package_path' => $result['package_path'] ?? null,
+                'metadata' => ['download_url' => $downloadUrl],
+                'log_lines' => ['Started system update install.', 'System update install completed.'],
+                'finished_at' => now(),
+            ]);
+
+            return ['run_id' => $run->id, ...$result];
+        } catch (Throwable $throwable) {
+            $run->update([
+                'status' => 'failed',
+                'step' => 'rolled_back',
+                'metadata' => ['download_url' => $downloadUrl],
+                'log_lines' => ['Started system update install.', 'System update install failed; rollback attempted.'],
+                'error_message' => $throwable->getMessage(),
+                'finished_at' => now(),
+            ]);
+
+            throw $throwable;
+        }
     }
 
     private function hasUpdate(string $currentVersion, string $latestVersion): bool

@@ -158,5 +158,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::prefix('system-updates')->middleware('permission:system-updates.manage')->group(function () {
         Route::get('/check', [SystemUpdateController::class, 'check']);
+        Route::post('/install', [SystemUpdateController::class, 'install']);
     });
 });
