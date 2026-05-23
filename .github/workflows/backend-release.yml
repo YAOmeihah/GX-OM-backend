@@ -1,0 +1,161 @@
+name: Backend Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, for example v1.2.3'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark the GitHub Release as a prerelease'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            tag="${{ inputs.version }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release version must look like v1.2.3, v1.2.3-rc.1, or v1.2.3+build.1" >&2
+            exit 1
+          fi
+
+          version="${tag#v}"
+          package="gx-om-backend-${tag}.tar.gz"
+          build_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "package=$package" >> "$GITHUB_OUTPUT"
+          echo "build_time=$build_time" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release ref
+        if: github.event_name == 'workflow_dispatch'
+        run: git checkout ${{ steps.meta.outputs.tag }}
+
+      - name: Resolve release commit
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: bcmath, pdo_sqlite
+          coverage: none
+          tools: composer:v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Validate Composer files
+        run: composer validate --strict
+
+      - name: Install Composer production dependencies
+        run: composer install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build frontend assets
+        run: npm run build
+
+      - name: Prepare release directory
+        shell: bash
+        run: |
+          rm -rf build/release build/assets
+          mkdir -p build/release build/assets
+
+          rsync -a ./ build/release/ \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            --exclude='auth.json' \
+            --exclude='node_modules/' \
+            --exclude='storage/' \
+            --exclude='tests/' \
+            --exclude='docs/' \
+            --exclude='/build/' \
+            --exclude='.serena/' \
+            --exclude='.phpunit.cache/' \
+            --exclude='.vscode/' \
+            --exclude='.idea/'
+
+          php tools/generate-backend-release-manifest.php \
+            --release-name="GX-OM Backend" \
+            --version="${{ steps.meta.outputs.version }}" \
+            --tag="${{ steps.meta.outputs.tag }}" \
+            --commit="${{ steps.commit.outputs.sha }}" \
+            --build-time="${{ steps.meta.outputs.build_time }}" \
+            --output=build/release/release.json
+
+      - name: Build release archive
+        run: php tools/build-backend-release.php --source=build/release --output=build/assets/${{ steps.meta.outputs.package }}
+
+      - name: Generate release manifest
+        shell: bash
+        run: |
+          sha256="$(cut -d ' ' -f 1 build/assets/${{ steps.meta.outputs.package }}.sha256)"
+          php tools/generate-backend-release-manifest.php \
+            --release-name="GX-OM Backend" \
+            --version="${{ steps.meta.outputs.version }}" \
+            --tag="${{ steps.meta.outputs.tag }}" \
+            --commit="${{ steps.commit.outputs.sha }}" \
+            --build-time="${{ steps.meta.outputs.build_time }}" \
+            --package-name="${{ steps.meta.outputs.package }}" \
+            --sha256="$sha256" \
+            --output=build/assets/release-manifest.json
+
+      - name: Verify release package boundary
+        shell: bash
+        run: |
+          tar -tzf build/assets/${{ steps.meta.outputs.package }} > build/assets/package-files.txt
+          ! grep -q '^node_modules/' build/assets/package-files.txt
+          ! grep -q '^\.git/' build/assets/package-files.txt
+          ! grep -q '^\.github/' build/assets/package-files.txt
+          ! grep -q '^\.env$' build/assets/package-files.txt
+          ! grep -q '^storage/' build/assets/package-files.txt
+          ! grep -q '^tests/' build/assets/package-files.txt
+          grep -q '^vendor/' build/assets/package-files.txt
+          grep -q '^public/build/' build/assets/package-files.txt
+          sha256sum --check build/assets/${{ steps.meta.outputs.package }}.sha256
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: GX-OM Backend ${{ steps.meta.outputs.tag }}
+          generate_release_notes: true
+          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease }}
+          files: |
+            build/assets/${{ steps.meta.outputs.package }}
+            build/assets/${{ steps.meta.outputs.package }}.sha256
+            build/assets/release-manifest.json
