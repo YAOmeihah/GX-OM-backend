@@ -93,21 +93,9 @@ jobs:
           rm -rf build/release build/assets
           mkdir -p build/release build/assets
 
-          rsync -a ./ build/release/ \
-            --exclude='.git/' \
-            --exclude='.github/' \
-            --exclude='.env' \
-            --exclude='.env.*' \
-            --exclude='auth.json' \
-            --exclude='node_modules/' \
-            --exclude='storage/' \
-            --exclude='tests/' \
-            --exclude='docs/' \
-            --exclude='/build/' \
-            --exclude='.serena/' \
-            --exclude='.phpunit.cache/' \
-            --exclude='.vscode/' \
-            --exclude='.idea/'
+          php tools/prepare-backend-release.php \
+            --source=. \
+            --output=build/release
 
           php tools/generate-backend-release-manifest.php \
             --release-name="GX-OM Backend" \
@@ -138,14 +126,57 @@ jobs:
         shell: bash
         run: |
           tar -tzf build/assets/${{ steps.meta.outputs.package }} > build/assets/package-files.txt
-          ! grep -q '^node_modules/' build/assets/package-files.txt
-          ! grep -q '^\.git/' build/assets/package-files.txt
-          ! grep -q '^\.github/' build/assets/package-files.txt
-          ! grep -q '^\.env$' build/assets/package-files.txt
-          ! grep -q '^storage/' build/assets/package-files.txt
-          ! grep -q '^tests/' build/assets/package-files.txt
-          grep -q '^vendor/' build/assets/package-files.txt
-          grep -q '^public/build/' build/assets/package-files.txt
+
+          required_entries=(
+            app/
+            bootstrap/
+            config/
+            database/
+            public/
+            public/build/
+            resources/
+            routes/
+            vendor/
+            artisan
+            composer.lock
+            release.json
+          )
+
+          blocked_entries=(
+            .scribe/
+            .editorconfig
+            .gitattributes
+            .github/
+            .gitignore
+            API_DOCUMENTATION
+            PERMISSION_SYSTEM
+            auth.json
+            composer.json
+            create_test_data.php
+            docs/
+            generate_test_token.php
+            node_modules/
+            package-lock.json
+            package.json
+            phpstan.neon
+            phpunit.xml
+            postcss.config.js
+            storage/
+            tailwind.config.js
+            test-permissions.php
+            tests/
+            tools/
+            vite.config.js
+          )
+
+          for entry in "${required_entries[@]}"; do
+            grep -q "^${entry}" build/assets/package-files.txt
+          done
+
+          for entry in "${blocked_entries[@]}"; do
+            ! grep -q "^${entry}" build/assets/package-files.txt
+          done
+
           (
             cd build/assets
             sha256sum --check ${{ steps.meta.outputs.package }}.sha256
