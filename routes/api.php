@@ -13,6 +13,7 @@ use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PrintTaskController;
 use App\Http\Controllers\PublicInvoiceController;
 use App\Http\Controllers\StoreController;
+use App\Http\Controllers\SystemUpdateController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -153,5 +154,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/history', [\App\Http\Controllers\MaintenanceController::class, 'history']);
         Route::post('/export', [\App\Http\Controllers\MaintenanceController::class, 'export']);
         Route::get('/export/{filename}', [\App\Http\Controllers\MaintenanceController::class, 'downloadExport']);
+    });
+
+    Route::prefix('system-updates')->middleware('permission:system-updates.manage')->group(function () {
+        Route::get('/check', [SystemUpdateController::class, 'check']);
     });
 });
