@@ -15,11 +15,13 @@ mkdir($source, 0777, true);
 mkdir($assets, 0777, true);
 
 $requiredEntries = [
+    '.env.example',
     'app/',
     'bootstrap/',
     'config/',
     'database/',
     'public/',
+    'public/storage',
     'public/build/',
     'resources/',
     'routes/',
@@ -27,11 +29,20 @@ $requiredEntries = [
     'artisan',
     'composer.lock',
     'release.json',
+    'storage/app/maintenance_exports/',
+    'storage/app/private/',
+    'storage/app/public/',
+    'storage/framework/cache/data/',
+    'storage/framework/sessions/',
+    'storage/framework/views/',
+    'storage/logs/',
 ];
 
 $blockedEntries = [
     '.scribe/',
     '.editorconfig',
+    '.env',
+    '.env.testing',
     '.gitattributes',
     '.gitignore',
     '.github/',
@@ -46,7 +57,9 @@ $blockedEntries = [
     'phpstan.neon',
     'phpunit.xml',
     'postcss.config.js',
-    'storage/',
+    'storage/app/maintenance_exports/old-export.json',
+    'storage/framework/views/stale-view.php',
+    'storage/logs/laravel.log',
     'tailwind.config.js',
     'test-permissions.php',
     'tests/',
@@ -122,7 +135,9 @@ function archiveFiles(string $archive): array
         exit(1);
     }
 
-    return array_values(array_filter(array_map(static fn (string $line): string => ltrim($line, './'), $output)));
+    return array_values(array_filter(array_map(static function (string $line): string {
+        return str_starts_with($line, './') ? substr($line, 2) : $line;
+    }, $output)));
 }
 
 function assertArchiveContains(array $files, string $entry): void

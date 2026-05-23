@@ -14,29 +14,34 @@ Use an allowlist instead of a broad copy plus exclusions.
 
 Include these root entries:
 
+- `.env.example`
 - `app/`
 - `bootstrap/`
 - `config/`
 - `database/`
 - `public/`
+- `public/storage/`
 - `resources/`
 - `routes/`
 - `vendor/`
 - `artisan`
 - `composer.lock`
 - `release.json`
+- clean `storage/` directory skeleton only
+- `public/storage/` directory skeleton only
 
 Do not include these root entries:
 
 - `.scribe/`
 - `.git/`, `.github/`, `.gitignore`, `.gitattributes`
-- `.env`, `.env.*`
+- `.env`, `.env.*` except `.env.example`
 - `auth.json`
 - `docs/`
 - `tools/`
 - `tests/`
 - `node_modules/`
 - `storage/`
+- `public/storage/`
 - `.editorconfig`
 - `composer.json`
 - `package.json`, `package-lock.json`
@@ -48,7 +53,7 @@ Do not include these root entries:
 - root documentation files such as `API_DOCUMENTATION*` and `PERMISSION_SYSTEM*`
 - root test or token helper scripts such as `create_test_data.php`, `generate_test_token.php`, and `test-permissions.php`
 
-Keep `composer.lock` for dependency traceability. Do not keep `composer.json` because the release package already includes production `vendor/` and should not ask server operators to run dependency installation.
+Keep `composer.lock` for dependency traceability. Do not keep `composer.json` because the release package already includes production `vendor/` and should not ask server operators to run dependency installation. Include `.env.example` so first-time deployments can copy it to `.env`, but never include real environment files. Include only an empty `storage` skeleton with placeholder files so Laravel has writable runtime directories after extraction without shipping local logs, cached views, test disks, or maintenance export data.
 
 ## Workflow Changes
 

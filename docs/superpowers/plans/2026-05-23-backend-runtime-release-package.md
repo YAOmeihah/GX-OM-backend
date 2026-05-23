@@ -275,6 +275,7 @@ Replace the package boundary checks with:
             config/
             database/
             public/
+            public/storage/
             public/build/
             resources/
             routes/
@@ -302,6 +303,7 @@ Replace the package boundary checks with:
             phpunit.xml
             postcss.config.js
             storage/
+            public/storage/
             tailwind.config.js
             test-permissions.php
             tests/

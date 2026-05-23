@@ -128,11 +128,13 @@ jobs:
           tar -tzf build/assets/${{ steps.meta.outputs.package }} > build/assets/package-files.txt
 
           required_entries=(
+            .env.example
             app/
             bootstrap/
             config/
             database/
             public/
+            public/storage/
             public/build/
             resources/
             routes/
@@ -140,11 +142,20 @@ jobs:
             artisan
             composer.lock
             release.json
+            storage/app/maintenance_exports/
+            storage/app/private/
+            storage/app/public/
+            storage/framework/cache/data/
+            storage/framework/sessions/
+            storage/framework/views/
+            storage/logs/
           )
 
           blocked_entries=(
             .scribe/
             .editorconfig
+            .env
+            .env.testing
             .gitattributes
             .github/
             .gitignore
@@ -161,7 +172,9 @@ jobs:
             phpstan.neon
             phpunit.xml
             postcss.config.js
-            storage/
+            storage/app/maintenance_exports/old-export.json
+            storage/framework/views/stale-view.php
+            storage/logs/laravel.log
             tailwind.config.js
             test-permissions.php
             tests/
@@ -169,12 +182,21 @@ jobs:
             vite.config.js
           )
 
+          contains_entry() {
+            local entry="$1"
+            if [[ "$entry" == */ ]]; then
+              awk -v entry="$entry" 'index($0, entry) == 1 { found = 1 } END { exit found ? 0 : 1 }' build/assets/package-files.txt
+            else
+              awk -v entry="$entry" '$0 == entry { found = 1 } END { exit found ? 0 : 1 }' build/assets/package-files.txt
+            fi
+          }
+
           for entry in "${required_entries[@]}"; do
-            grep -q "^${entry}" build/assets/package-files.txt
+            contains_entry "$entry"
           done
 
           for entry in "${blocked_entries[@]}"; do
-            ! grep -q "^${entry}" build/assets/package-files.txt
+            ! contains_entry "$entry"
           done
 
           (

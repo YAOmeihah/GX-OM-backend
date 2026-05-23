@@ -32,6 +32,7 @@ if (! mkdir($outputDir, 0777, true) && ! is_dir($outputDir)) {
 }
 
 $runtimeEntries = [
+    '.env.example',
     'app',
     'bootstrap',
     'config',
@@ -54,6 +55,43 @@ foreach ($runtimeEntries as $entry) {
     $targetPath = $outputDir . DIRECTORY_SEPARATOR . $entry;
     is_dir($sourcePath) ? copyDirectory($sourcePath, $targetPath) : copyFile($sourcePath, $targetPath);
 }
+
+$storageDirectories = [
+    'storage/app/maintenance_exports',
+    'storage/app/private',
+    'storage/app/public',
+    'storage/framework/cache/data',
+    'storage/framework/sessions',
+    'storage/framework/views',
+    'storage/logs',
+];
+
+foreach ($storageDirectories as $directory) {
+    $targetPath = $outputDir . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $directory);
+    if (! is_dir($targetPath) && ! mkdir($targetPath, 0777, true) && ! is_dir($targetPath)) {
+        fwrite(STDERR, "Failed to create storage directory: {$directory}\n");
+        exit(1);
+    }
+
+    file_put_contents($targetPath . DIRECTORY_SEPARATOR . '.gitignore', "*\n!.gitignore\n");
+}
+
+$publicStorageLink = $outputDir . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'storage';
+if (is_link($publicStorageLink) || file_exists($publicStorageLink)) {
+    unlink($publicStorageLink);
+}
+
+if (! is_dir(dirname($publicStorageLink)) && ! mkdir(dirname($publicStorageLink), 0777, true) && ! is_dir(dirname($publicStorageLink))) {
+    fwrite(STDERR, "Failed to create public storage link parent\n");
+    exit(1);
+}
+
+if (! mkdir($publicStorageLink, 0777, true) && ! is_dir($publicStorageLink)) {
+    fwrite(STDERR, "Failed to create public storage directory\n");
+    exit(1);
+}
+
+file_put_contents($publicStorageLink . DIRECTORY_SEPARATOR . '.gitignore', "*\n!.gitignore\n");
 
 fwrite(STDOUT, "Release directory prepared: {$outputDir}\n");
 
