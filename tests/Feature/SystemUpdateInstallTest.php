@@ -49,6 +49,21 @@ class SystemUpdateInstallTest extends TestCase
         ]);
 
         Http::fake([
+            'api.github.com/repos/*/releases/latest' => Http::response([
+                'tag_name' => 'v1.2.4',
+                'draft' => false,
+                'prerelease' => false,
+                'assets' => [
+                    ['name' => 'release-manifest.json', 'browser_download_url' => 'https://example.test/release-manifest.json'],
+                    ['name' => 'gx-om-backend-v1.2.4.tar.gz', 'browser_download_url' => 'https://example.test/gx-om-backend-v1.2.4.tar.gz'],
+                    ['name' => 'gx-om-backend-v1.2.4.tar.gz.sha256', 'browser_download_url' => 'https://example.test/pkg.tar.gz.sha256'],
+                ],
+            ]),
+            'example.test/release-manifest.json' => Http::response(json_encode([
+                'version' => '1.2.4',
+                'sha256' => hash_file('sha256', $packagePath),
+            ], JSON_THROW_ON_ERROR)),
+            'example.test/pkg.tar.gz.sha256' => Http::response(hash_file('sha256', $packagePath).'  gx-om-backend-v1.2.4.tar.gz' . PHP_EOL),
             'example.test/gx-om-backend-v1.2.4.tar.gz' => Http::response(file_get_contents($packagePath)),
         ]);
 
@@ -58,7 +73,6 @@ class SystemUpdateInstallTest extends TestCase
         $response = $this->postJson('/api/system-updates/install', [
             'tag' => 'v1.2.4',
             'sha256' => hash_file('sha256', $packagePath),
-            'download_url' => 'https://example.test/gx-om-backend-v1.2.4.tar.gz',
             'confirmed' => true,
         ]);
 
@@ -75,6 +89,83 @@ class SystemUpdateInstallTest extends TestCase
             'version' => '1.2.4',
             'status' => 'completed',
             'package_sha256' => hash_file('sha256', $packagePath),
+        ]);
+    }
+
+    public function test_install_ignores_client_download_url_and_uses_trusted_release_asset(): void
+    {
+        Storage::fake();
+        $root = $this->fixtureDeploymentRoot('trusted-download');
+        $trustedPackagePath = $this->fixturePath('trusted-release.tar.gz');
+        $trustedDownloadUrl = 'https://example.test/releases/gx-om-backend-v1.2.4.tar.gz';
+        $maliciousDownloadUrl = 'https://evil.test/gx-om-backend-v1.2.4.tar.gz';
+
+        $this->writeDeploymentRoot($root, [
+            '.env' => 'APP_KEY=existing',
+            'storage/app/runtime.txt' => 'local runtime',
+            'public/storage/upload.txt' => 'linked upload',
+            'app/Services/Existing.php' => 'old service',
+            'public/index.php' => 'old public index',
+            'release.json' => '{"version":"1.2.3"}',
+        ]);
+
+        $this->writeGzipTar($trustedPackagePath, [
+            '.env.example' => 'APP_KEY=',
+            'app/Services/Existing.php' => 'new service',
+            'bootstrap/app.php' => '<?php',
+            'config/app.php' => '<?php return [];',
+            'database/migrations/example.php' => '<?php',
+            'public/index.php' => 'new public index',
+            'resources/views/.gitkeep' => '',
+            'routes/api.php' => '<?php',
+            'vendor/autoload.php' => '<?php',
+            'artisan' => '#!/usr/bin/env php',
+            'composer.lock' => '{}',
+            'release.json' => '{"version":"1.2.4","tag":"v1.2.4"}',
+        ]);
+
+        Http::fake([
+            'api.github.com/repos/*/releases/latest' => Http::response([
+                'tag_name' => 'v1.2.4',
+                'draft' => false,
+                'prerelease' => false,
+                'assets' => [
+                    ['name' => 'release-manifest.json', 'browser_download_url' => 'https://example.test/release-manifest.json'],
+                    ['name' => 'gx-om-backend-v1.2.4.tar.gz', 'browser_download_url' => $trustedDownloadUrl],
+                    ['name' => 'gx-om-backend-v1.2.4.tar.gz.sha256', 'browser_download_url' => 'https://example.test/pkg.tar.gz.sha256'],
+                ],
+            ]),
+            'example.test/release-manifest.json' => Http::response(json_encode([
+                'version' => '1.2.4',
+                'sha256' => hash_file('sha256', $trustedPackagePath),
+            ], JSON_THROW_ON_ERROR)),
+            'example.test/pkg.tar.gz.sha256' => Http::response(hash_file('sha256', $trustedPackagePath).'  gx-om-backend-v1.2.4.tar.gz' . PHP_EOL),
+            $trustedDownloadUrl => Http::response(file_get_contents($trustedPackagePath)),
+            'evil.test/*' => Http::response('this should not be fetched'),
+        ]);
+
+        $this->bindInstallerForRoot($root);
+        $admin = $this->actingAsAdmin();
+
+        $response = $this->postJson('/api/system-updates/install', [
+            'tag' => 'v1.2.4',
+            'sha256' => hash_file('sha256', $trustedPackagePath),
+            'download_url' => $maliciousDownloadUrl,
+            'confirmed' => true,
+        ]);
+
+        $response->assertAccepted();
+        Http::assertSent(function (\Illuminate\Http\Client\Request $request) use ($trustedDownloadUrl): bool {
+            return $request->url() === $trustedDownloadUrl;
+        });
+        Http::assertSentCount(4);
+        $this->assertSame('new service', file_get_contents($root.'/app/Services/Existing.php'));
+        $this->assertDatabaseHas('system_update_runs', [
+            'actor_user_id' => $admin->id,
+            'tag' => 'v1.2.4',
+            'version' => '1.2.4',
+            'status' => 'completed',
+            'package_sha256' => hash_file('sha256', $trustedPackagePath),
         ]);
     }
 
@@ -110,6 +201,21 @@ class SystemUpdateInstallTest extends TestCase
         ]);
 
         Http::fake([
+            'api.github.com/repos/*/releases/latest' => Http::response([
+                'tag_name' => 'v1.2.4',
+                'draft' => false,
+                'prerelease' => false,
+                'assets' => [
+                    ['name' => 'release-manifest.json', 'browser_download_url' => 'https://example.test/release-manifest.json'],
+                    ['name' => 'gx-om-backend-v1.2.4.tar.gz', 'browser_download_url' => 'https://example.test/gx-om-backend-v1.2.4.tar.gz'],
+                    ['name' => 'gx-om-backend-v1.2.4.tar.gz.sha256', 'browser_download_url' => 'https://example.test/pkg.tar.gz.sha256'],
+                ],
+            ]),
+            'example.test/release-manifest.json' => Http::response(json_encode([
+                'version' => '1.2.4',
+                'sha256' => hash_file('sha256', $packagePath),
+            ], JSON_THROW_ON_ERROR)),
+            'example.test/pkg.tar.gz.sha256' => Http::response(hash_file('sha256', $packagePath).'  gx-om-backend-v1.2.4.tar.gz' . PHP_EOL),
             'example.test/gx-om-backend-v1.2.4.tar.gz' => Http::response(file_get_contents($packagePath)),
         ]);
 
@@ -125,7 +231,6 @@ class SystemUpdateInstallTest extends TestCase
         $response = $this->postJson('/api/system-updates/install', [
             'tag' => 'v1.2.4',
             'sha256' => hash_file('sha256', $packagePath),
-            'download_url' => 'https://example.test/gx-om-backend-v1.2.4.tar.gz',
             'confirmed' => true,
         ]);
 

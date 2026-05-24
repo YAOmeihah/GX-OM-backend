@@ -23,6 +23,15 @@ class SystemUpdatePermissionTest extends TestCase
         $this->assertSame('system', $permission->module);
     }
 
+    public function test_system_update_permission_exists_after_migrations_without_manual_seeding(): void
+    {
+        $permission = Permission::where('slug', 'system-updates.manage')->first();
+
+        $this->assertNotNull($permission);
+        $this->assertSame('系统更新', $permission->name);
+        $this->assertSame('system', $permission->module);
+    }
+
     public function test_system_update_run_table_persists_status_and_logs(): void
     {
         $user = User::factory()->create();

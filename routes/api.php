@@ -156,8 +156,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/export/{filename}', [\App\Http\Controllers\MaintenanceController::class, 'downloadExport']);
     });
 
-    Route::prefix('system-updates')->middleware('permission:system-updates.manage')->group(function () {
+    Route::prefix('system-updates')->middleware(['auth:sanctum', 'permission:system-updates.manage'])->group(function () {
+        Route::get('/current', [SystemUpdateController::class, 'current']);
         Route::get('/check', [SystemUpdateController::class, 'check']);
+        Route::get('/preflight', [SystemUpdateController::class, 'preflight']);
         Route::post('/install', [SystemUpdateController::class, 'install']);
+        Route::get('/runs', [SystemUpdateController::class, 'index']);
+        Route::get('/runs/{run}', [SystemUpdateController::class, 'show']);
+        Route::post('/rollback', [SystemUpdateController::class, 'rollback']);
     });
 });

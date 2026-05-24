@@ -3,6 +3,7 @@
 namespace App\Services\SystemUpdate;
 
 use App\Models\SystemUpdateRun;
+use Symfony\Component\Process\Process;
 use Throwable;
 
 class SystemUpdateService
@@ -10,6 +11,7 @@ class SystemUpdateService
     public function __construct(
         private readonly GitHubReleaseClient $githubReleaseClient,
         private readonly InPlaceReleaseInstaller $installer,
+        private readonly SystemUpdateEnvironmentPreflight $environmentPreflight,
     ) {}
 
     /**
@@ -35,29 +37,18 @@ class SystemUpdateService
         $path = base_path('release.json');
 
         if (! is_file($path)) {
-            return [
-                'found' => false,
-                'version' => 'unknown',
-                'tag' => null,
-                'commit' => null,
-                'build_time' => null,
-            ];
+            return $this->currentGitRelease();
         }
 
         $metadata = json_decode((string) file_get_contents($path), true);
 
         if (! is_array($metadata)) {
-            return [
-                'found' => false,
-                'version' => 'unknown',
-                'tag' => null,
-                'commit' => null,
-                'build_time' => null,
-            ];
+            return $this->currentGitRelease();
         }
 
         return [
             'found' => true,
+            'source' => 'release.json',
             'version' => (string) ($metadata['version'] ?? 'unknown'),
             'tag' => $metadata['tag'] ?? null,
             'commit' => $metadata['commit'] ?? null,
@@ -66,23 +57,21 @@ class SystemUpdateService
     }
 
     /**
-     * @param  array{tag: string, sha256: string, download_url?: string|null}  $payload
+     * @param  array{tag: string, sha256: string}  $payload
      * @return array<string, mixed>
      */
     public function install(array $payload): array
     {
+        $this->environmentPreflight->ensureReady();
+
         $tag = $payload['tag'];
-        $downloadUrl = $payload['download_url'] ?? null;
+        $latest = $this->githubReleaseClient->latestRelease();
 
-        if ($downloadUrl === null) {
-            $latest = $this->githubReleaseClient->latestRelease();
-
-            if (($latest['tag'] ?? null) !== $tag) {
-                throw new \UnexpectedValueException('Requested release tag does not match the latest release.');
-            }
-
-            $downloadUrl = (string) ($latest['package']['download_url'] ?? '');
+        if (($latest['tag'] ?? null) !== $tag) {
+            throw new \UnexpectedValueException('Requested release tag does not match the latest release.');
         }
+
+        $downloadUrl = (string) ($latest['package']['download_url'] ?? '');
 
         if ($downloadUrl === '') {
             throw new \UnexpectedValueException('Release package download URL is missing.');
@@ -138,5 +127,61 @@ class SystemUpdateService
         }
 
         return version_compare(ltrim($latestVersion, 'v'), ltrim($currentVersion, 'v'), '>');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function currentGitRelease(): array
+    {
+        $version = $this->runGitCommand(['describe', '--tags', '--always', '--dirty']);
+        $commit = $this->runGitCommand(['rev-parse', '--short=12', 'HEAD']);
+        $buildTime = $this->runGitCommand(['log', '-1', '--format=%cI']);
+
+        if ($version === null && $commit === null) {
+            return $this->unknownRelease();
+        }
+
+        return [
+            'found' => true,
+            'source' => 'git',
+            'version' => $version ?? $commit ?? 'unknown',
+            'tag' => $version,
+            'commit' => $commit,
+            'build_time' => $buildTime,
+        ];
+    }
+
+    /**
+     * @param  list<string>  $arguments
+     */
+    private function runGitCommand(array $arguments): ?string
+    {
+        $process = new Process([(string) config('system_update.git_binary', 'git'), ...$arguments], base_path());
+        $process->setTimeout(3);
+        $process->run();
+
+        if (! $process->isSuccessful()) {
+            return null;
+        }
+
+        $output = trim($process->getOutput());
+
+        return $output === '' ? null : $output;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function unknownRelease(): array
+    {
+        return [
+            'found' => false,
+            'source' => null,
+            'version' => 'unknown',
+            'tag' => null,
+            'commit' => null,
+            'build_time' => null,
+        ];
     }
 }

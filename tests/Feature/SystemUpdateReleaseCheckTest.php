@@ -30,7 +30,12 @@ class SystemUpdateReleaseCheckTest extends TestCase
                     ['name' => 'gx-om-backend-v1.2.4.tar.gz.sha256', 'browser_download_url' => 'https://example.test/pkg.tar.gz.sha256'],
                 ],
             ]),
-            'example.test/*' => Http::response('{"version":"1.2.4"}'),
+            'example.test/release-manifest.json' => Http::response(json_encode([
+                'version' => '1.2.4',
+                'sha256' => str_repeat('c', 64),
+            ], JSON_THROW_ON_ERROR)),
+            'example.test/pkg.tar.gz.sha256' => Http::response(str_repeat('c', 64).'  gx-om-backend-v1.2.4.tar.gz' . PHP_EOL),
+            'example.test/pkg.tar.gz' => Http::response('placeholder package'),
         ]);
 
         try {
@@ -54,6 +59,22 @@ class SystemUpdateReleaseCheckTest extends TestCase
                 file_put_contents($releaseJsonPath, $originalReleaseJson);
             }
         }
+    }
+
+    public function test_check_endpoint_returns_readable_error_when_github_rate_limit_is_hit(): void
+    {
+        $this->actingAsAdmin();
+
+        Http::fake([
+            'api.github.com/repos/*/releases/latest' => Http::response([
+                'message' => 'API rate limit exceeded for 103.62.49.138.',
+                'documentation_url' => 'https://docs.github.com/rest/overview/resources-in-the-rest-api#rate-limiting',
+            ], 403),
+        ]);
+
+        $this->getJson('/api/system-updates/check')
+            ->assertStatus(429)
+            ->assertJsonPath('message', 'GitHub API rate limit exceeded. Configure SYSTEM_UPDATE_GITHUB_TOKEN or try again later.');
     }
 
     private function actingAsAdmin(): void

@@ -94,6 +94,25 @@ class InPlaceReleaseInstaller
         ];
     }
 
+    /**
+     * @return array<string, mixed>
+     */
+    public function rollback(string $backupPath): array
+    {
+        $root = $this->root();
+
+        if (! is_dir($backupPath)) {
+            throw new RuntimeException('Rollback backup path is missing.');
+        }
+
+        $this->restoreBackup($root, $backupPath);
+        $this->tryBringApplicationUp($root);
+
+        return [
+            'backup_path' => $backupPath,
+        ];
+    }
+
     private function root(): string
     {
         return rtrim($this->deploymentRoot ?? base_path(), DIRECTORY_SEPARATOR.'/\\');
@@ -116,7 +135,22 @@ class InPlaceReleaseInstaller
 
     private function downloadPackage(string $downloadUrl, string $packagePath): void
     {
-        $response = Http::timeout(120)->get($downloadUrl)->throw();
+        $request = Http::timeout(120)->retry(3, 1000);
+        $token = trim((string) config('system_update.github.token', ''));
+
+        if (str_starts_with($downloadUrl, 'https://api.github.com/')) {
+            $request = $request->withHeaders([
+                'Accept' => 'application/octet-stream',
+            ])->withOptions([
+                'version' => 1.1,
+            ]);
+
+            if ($token !== '') {
+                $request = $request->withToken($token);
+            }
+        }
+
+        $response = $request->get($downloadUrl)->throw();
 
         file_put_contents($packagePath, $response->body());
     }

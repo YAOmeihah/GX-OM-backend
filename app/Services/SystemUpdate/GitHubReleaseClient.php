@@ -2,6 +2,8 @@
 
 namespace App\Services\SystemUpdate;
 
+use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -15,9 +17,21 @@ class GitHubReleaseClient
         $owner = config('system_update.github.owner');
         $repo = config('system_update.github.repo');
 
-        $release = Http::acceptJson()
+        $release = $this->githubApiRequest()
             ->get("https://api.github.com/repos/{$owner}/{$repo}/releases/latest")
-            ->throw()
+            ->throw(function ($response, RequestException $exception): void {
+                if (
+                    $response->status() === 403
+                    && str_contains(
+                        strtolower((string) ($response->json('message') ?? '')),
+                        'rate limit',
+                    )
+                ) {
+                    throw new GitHubRateLimitException;
+                }
+
+                throw $exception;
+            })
             ->json();
 
         if (($release['draft'] ?? false) === true) {
@@ -31,7 +45,15 @@ class GitHubReleaseClient
         $manifestAsset = $this->findAsset($assets, 'release-manifest.json');
         $packageAsset = $this->findAsset($assets, $packageName);
         $checksumAsset = $this->findAsset($assets, "{$packageName}.sha256");
-        $manifest = $this->downloadManifest((string) $manifestAsset['browser_download_url']);
+        $manifest = $this->downloadManifest($this->assetDownloadUrl($manifestAsset));
+        $manifestSha256 = $this->normalizeSha256((string) ($manifest['sha256'] ?? ''));
+        $checksumSha256 = $this->parseChecksumSha256(
+            $this->downloadChecksum($this->assetDownloadUrl($checksumAsset))
+        );
+
+        if (! hash_equals($manifestSha256, $checksumSha256)) {
+            throw new RuntimeException('Release checksum asset does not match manifest sha256.');
+        }
 
         return [
             'tag' => $tag,
@@ -43,17 +65,18 @@ class GitHubReleaseClient
             'prerelease' => (bool) ($release['prerelease'] ?? false),
             'package' => [
                 'name' => $packageAsset['name'],
-                'download_url' => $packageAsset['browser_download_url'],
+                'download_url' => $this->assetDownloadUrl($packageAsset),
                 'size' => $packageAsset['size'] ?? null,
-                'sha256' => $manifest['sha256'] ?? null,
+                'sha256' => $manifestSha256,
             ],
             'checksum' => [
                 'name' => $checksumAsset['name'],
-                'download_url' => $checksumAsset['browser_download_url'],
+                'download_url' => $this->assetDownloadUrl($checksumAsset),
+                'sha256' => $checksumSha256,
             ],
             'manifest' => [
                 'name' => $manifestAsset['name'],
-                'download_url' => $manifestAsset['browser_download_url'],
+                'download_url' => $this->assetDownloadUrl($manifestAsset),
             ],
         ];
     }
@@ -66,11 +89,47 @@ class GitHubReleaseClient
     {
         $asset = $assets->first(fn (array $asset): bool => ($asset['name'] ?? null) === $name);
 
-        if (! is_array($asset) || empty($asset['browser_download_url'])) {
+        if (! is_array($asset) || (empty($asset['url']) && empty($asset['browser_download_url']))) {
             throw new RuntimeException("Missing GitHub release asset: {$name}");
         }
 
         return $asset;
+    }
+
+    private function githubApiRequest(): PendingRequest
+    {
+        return $this->githubRequest()->acceptJson();
+    }
+
+    private function githubRequest(): PendingRequest
+    {
+        $request = Http::baseUrl('')
+            ->timeout(30)
+            ->retry(3, 500, null, false);
+        $token = trim((string) config('system_update.github.token', ''));
+
+        if ($token !== '') {
+            $request = $request->withToken($token);
+        }
+
+        return $request;
+    }
+
+    /**
+     * @param  array<string, mixed>  $asset
+     */
+    private function assetDownloadUrl(array $asset): string
+    {
+        return (string) ($asset['url'] ?? $asset['browser_download_url']);
+    }
+
+    private function githubAssetRequest(): PendingRequest
+    {
+        return $this->githubRequest()->withHeaders([
+            'Accept' => 'application/octet-stream',
+        ])->withOptions([
+            'version' => 1.1,
+        ]);
     }
 
     /**
@@ -78,12 +137,55 @@ class GitHubReleaseClient
      */
     private function downloadManifest(string $url): array
     {
-        $manifest = Http::acceptJson()->get($url)->throw()->json();
+        $manifest = $this->downloadAsset($url);
+        $manifest = json_decode($manifest, true, 512, JSON_THROW_ON_ERROR);
 
         if (! is_array($manifest)) {
             throw new RuntimeException('Release manifest is not valid JSON.');
         }
 
         return $manifest;
+    }
+
+    private function downloadChecksum(string $url): string
+    {
+        $checksum = $this->downloadAsset($url);
+
+        if (trim($checksum) === '') {
+            throw new RuntimeException('Release checksum asset is empty.');
+        }
+
+        return $checksum;
+    }
+
+    private function downloadAsset(string $url): string
+    {
+        $request = str_starts_with($url, 'https://api.github.com/')
+            ? $this->githubAssetRequest()
+            : Http::acceptJson()->timeout(30)->retry(3, 500);
+
+        return $request->get($url)->throw()->body();
+    }
+
+    private function parseChecksumSha256(string $checksum): string
+    {
+        $checksum = trim($checksum);
+
+        if (preg_match('/^([a-f0-9]{64})(?:\s+.+)?$/i', $checksum, $matches) !== 1) {
+            throw new RuntimeException('Release checksum asset is invalid.');
+        }
+
+        return strtolower($matches[1]);
+    }
+
+    private function normalizeSha256(string $sha256): string
+    {
+        $sha256 = strtolower(trim($sha256));
+
+        if (preg_match('/^[a-f0-9]{64}$/', $sha256) !== 1) {
+            throw new RuntimeException('Release manifest sha256 is invalid.');
+        }
+
+        return $sha256;
     }
 }
