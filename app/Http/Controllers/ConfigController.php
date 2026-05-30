@@ -6,6 +6,7 @@ use App\Services\S3RuntimeConfigService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 /**
  * @group 配置管理
@@ -64,6 +65,8 @@ class ConfigController extends ApiController
             return $this->errorResponse('需要系统管理员权限', 403);
         }
 
+        $configService = app(S3RuntimeConfigService::class);
+
         $config = [
             'disk' => config('app.attachment_disk', 's3-compat'),
             'max_file_size' => config('app.attachment_max_size', 10485760),
@@ -80,7 +83,8 @@ class ConfigController extends ApiController
                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 'text/plain',
             ],
-            's3_config' => app(S3RuntimeConfigService::class)->maskedConfig(),
+            'source' => $configService->hasRuntimeConfig() ? 'runtime' : 'env',
+            's3_config' => $configService->maskedConfig(),
         ];
 
         return $this->successResponse($config);
@@ -129,30 +133,41 @@ class ConfigController extends ApiController
             return $this->errorResponse('需要系统管理员权限', 403);
         }
 
-        $validated = $request->validate([
-            'access_key' => 'required|string',
-            'secret_key' => 'required|string',
-            'region' => 'required|string',
-            'bucket' => 'required|string',
-            'endpoint' => 'required|url',
-        ]);
-
         try {
-            $configService = app(S3RuntimeConfigService::class);
-            $candidateConfig = $configService->effectiveConfig($validated);
+            $validated = $request->validate([
+                'access_key' => 'nullable|string',
+                'secret_key' => 'nullable|string',
+                'region' => 'required|string',
+                'bucket' => 'required|string',
+                'endpoint' => 'required|url',
+                'url' => 'nullable|url',
+                'use_path_style_endpoint' => 'required|boolean',
+                'verify' => 'required|boolean',
+            ]);
 
-            $configService->apply($candidateConfig);
-            $testResult = $this->testS3ConnectionInternal();
+            $configService = app(S3RuntimeConfigService::class);
+            $candidateConfig = $this->buildCandidateS3Config($configService, $validated);
+
+            if (blank($candidateConfig['key'] ?? null) || blank($candidateConfig['secret'] ?? null)) {
+                return $this->errorResponse('访问密钥和秘密密钥不能为空', 422);
+            }
+
+            $testResult = $this->testS3ConnectionInternal($candidateConfig);
 
             if (! $testResult['success']) {
+                $configService->apply();
+
                 return $this->errorResponse('配置测试失败', 422);
             }
 
             $configService->persist($candidateConfig);
             $configService->apply($candidateConfig);
+            $configService->commitAppliedConfig();
 
             return $this->successResponse(null, 'S3存储配置更新成功');
 
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('S3配置更新失败', [
                 'user_id' => auth()->id(),
@@ -192,7 +207,7 @@ class ConfigController extends ApiController
      *   "login_url": "http://localhost/api/login"
      * }
      */
-    public function testS3Connection()
+    public function testS3Connection(Request $request)
     {
         // 只有系统管理员可以测试连接
         if (! $this->isAdmin()) {
@@ -200,15 +215,48 @@ class ConfigController extends ApiController
         }
 
         try {
-            app(S3RuntimeConfigService::class)->apply();
-            $disk = Storage::disk('s3-compat');
+            $configService = app(S3RuntimeConfigService::class);
+            $candidateConfig = null;
 
-            // 尝试列出存储桶内容来测试连接
-            $disk->files('', true);
+            if ($request->all() !== []) {
+                $validated = $request->validate([
+                    'access_key' => 'nullable|string',
+                    'secret_key' => 'nullable|string',
+                    'region' => 'required|string',
+                    'bucket' => 'required|string',
+                    'endpoint' => 'required|url',
+                    'url' => 'nullable|url',
+                    'use_path_style_endpoint' => 'required|boolean',
+                    'verify' => 'required|boolean',
+                ]);
+
+                $candidateConfig = $this->buildCandidateS3Config($configService, $validated);
+
+                if (blank($candidateConfig['key'] ?? null) || blank($candidateConfig['secret'] ?? null)) {
+                    return $this->errorResponse('访问密钥和秘密密钥不能为空', 422);
+                }
+            }
+
+            $effectiveConfig = $candidateConfig ?? $configService->effectiveConfig();
+
+            if (blank($effectiveConfig['key'] ?? null) || blank($effectiveConfig['secret'] ?? null)) {
+                return $this->errorResponse('访问密钥和秘密密钥不能为空', 422);
+            }
+
+            $testResult = $this->testS3ConnectionInternal($candidateConfig);
+            $configService->apply();
+
+            if (! $testResult['success']) {
+                return $this->errorResponse('配置测试失败', 422);
+            }
 
             return $this->successResponse(['status' => 'connected'], 'S3存储连接测试成功');
 
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
+            app(S3RuntimeConfigService::class)->apply();
+
             Log::warning('S3连接测试失败', [
                 'user_id' => auth()->id(),
                 'exception' => get_class($e),
@@ -219,16 +267,54 @@ class ConfigController extends ApiController
         }
     }
 
+    public function resetS3RuntimeConfig()
+    {
+        if (! $this->isAdmin()) {
+            return $this->errorResponse('需要系统管理员权限', 403);
+        }
+
+        app(S3RuntimeConfigService::class)->clearRuntimeConfig();
+        app(S3RuntimeConfigService::class)->apply();
+
+        return $this->successResponse(null, 'S3运行时配置已恢复为环境配置');
+    }
+
+    private function buildCandidateS3Config(S3RuntimeConfigService $configService, array $validated): array
+    {
+        $current = $configService->effectiveConfig();
+
+        return $configService->effectiveConfig([
+            'access_key' => filled($validated['access_key'] ?? null)
+                ? $validated['access_key']
+                : ($current['key'] ?? null),
+            'secret_key' => filled($validated['secret_key'] ?? null)
+                ? $validated['secret_key']
+                : ($current['secret'] ?? null),
+            'region' => $validated['region'],
+            'bucket' => $validated['bucket'],
+            'endpoint' => $validated['endpoint'],
+            'url' => $validated['url'] ?? null,
+            'use_path_style_endpoint' => (bool) $validated['use_path_style_endpoint'],
+            'verify' => (bool) $validated['verify'],
+        ]);
+    }
+
     /**
      * 测试连接的内部方法
      */
-    private function testS3ConnectionInternal(): array
+    private function testS3ConnectionInternal(?array $candidateConfig = null): array
     {
         try {
+            if ($candidateConfig !== null) {
+                app(S3RuntimeConfigService::class)->apply($candidateConfig);
+            } else {
+                app(S3RuntimeConfigService::class)->apply();
+            }
+
             $disk = Storage::disk('s3-compat');
             $disk->files('', true);
 
-            return ['success' => true, 'message' => '连接成功'];
+            return ['success' => true];
         } catch (\Exception $e) {
             Log::warning('S3配置测试失败', [
                 'user_id' => auth()->id(),
@@ -236,7 +322,7 @@ class ConfigController extends ApiController
                 'error' => $e->getMessage(),
             ]);
 
-            return ['success' => false, 'message' => '配置测试失败'];
+            return ['success' => false];
         }
     }
 }

@@ -95,6 +95,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('config/attachment', [ConfigController::class, 'getAttachmentConfig']);
     Route::put('config/s3', [ConfigController::class, 'updateS3Config']);
     Route::post('config/s3/test', [ConfigController::class, 'testS3Connection']);
+    Route::delete('config/s3/runtime', [ConfigController::class, 'resetS3RuntimeConfig']);
 
     // 还款相关路由
     Route::apiResource('payments', PaymentController::class);

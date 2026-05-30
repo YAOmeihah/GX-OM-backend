@@ -11,6 +11,8 @@ class S3RuntimeConfigService
 {
     private const CONFIG_KEY = 's3-compat';
 
+    private static ?array $previousAppliedConfig = null;
+
     public function effectiveConfig(array $overrides = []): array
     {
         $config = config('filesystems.disks.'.self::CONFIG_KEY, []);
@@ -32,20 +34,52 @@ class S3RuntimeConfigService
                 'region' => $config['region'] ?? null,
                 'bucket' => $config['bucket'] ?? null,
                 'endpoint' => $config['endpoint'] ?? null,
+                'url' => $config['url'] ?? null,
+                'use_path_style_endpoint' => (bool) ($config['use_path_style_endpoint'] ?? false),
+                'verify' => (bool) ($config['verify'] ?? true),
             ]]
         );
     }
 
+    public function hasRuntimeConfig(): bool
+    {
+        return $this->storedConfig() !== null;
+    }
+
+    public function clearRuntimeConfig(): void
+    {
+        if (! Schema::hasTable('runtime_configs')) {
+            return;
+        }
+
+        RuntimeConfig::where('key', self::CONFIG_KEY)->delete();
+        Storage::forgetDisk(self::CONFIG_KEY);
+    }
+
     public function apply(?array $config = null): array
     {
-        $effectiveConfig = $config
-            ? $this->mergeRuntimeConfig($this->effectiveConfig(), $config)
-            : $this->effectiveConfig();
+        if ($config !== null) {
+            self::$previousAppliedConfig ??= $this->currentManagedConfig();
+            $effectiveConfig = $this->mergeRuntimeConfig($this->effectiveConfig(), $config);
+        } elseif (self::$previousAppliedConfig !== null) {
+            $effectiveConfig = self::$previousAppliedConfig;
+            self::$previousAppliedConfig = null;
+        } else {
+            $effectiveConfig = $this->effectiveConfig();
+        }
 
+        return $this->applyResolvedConfig($effectiveConfig);
+    }
+
+    public function commitAppliedConfig(): void
+    {
+        self::$previousAppliedConfig = null;
+    }
+
+    private function applyResolvedConfig(array $effectiveConfig): array
+    {
         foreach (['key', 'secret', 'region', 'bucket', 'endpoint', 'url', 'use_path_style_endpoint'] as $key) {
-            if (array_key_exists($key, $effectiveConfig)) {
-                Config::set('filesystems.disks.'.self::CONFIG_KEY.'.'.$key, $effectiveConfig[$key]);
-            }
+            Config::set('filesystems.disks.'.self::CONFIG_KEY.'.'.$key, $effectiveConfig[$key] ?? null);
         }
 
         $verify = $this->resolveSslVerification($effectiveConfig);
@@ -57,6 +91,22 @@ class S3RuntimeConfigService
         return $effectiveConfig;
     }
 
+    private function currentManagedConfig(): array
+    {
+        $config = config('filesystems.disks.'.self::CONFIG_KEY, []);
+
+        return [
+            'key' => $config['key'] ?? null,
+            'secret' => $config['secret'] ?? null,
+            'region' => $config['region'] ?? null,
+            'bucket' => $config['bucket'] ?? null,
+            'endpoint' => $config['endpoint'] ?? null,
+            'url' => $config['url'] ?? null,
+            'use_path_style_endpoint' => (bool) ($config['use_path_style_endpoint'] ?? false),
+            'verify' => $this->resolveSslVerification($config),
+        ];
+    }
+
     public function maskedConfig(): array
     {
         $config = $this->effectiveConfig();
@@ -65,6 +115,9 @@ class S3RuntimeConfigService
             'region' => $config['region'] ?? null,
             'bucket' => $config['bucket'] ?? null,
             'endpoint' => $config['endpoint'] ?? null,
+            'url' => $config['url'] ?? null,
+            'use_path_style_endpoint' => (bool) ($config['use_path_style_endpoint'] ?? false),
+            'verify' => $this->resolveSslVerification($config),
             'access_key' => ! empty($config['key']) ? '已配置' : '未配置',
             'secret_key' => ! empty($config['secret']) ? '已配置' : '未配置',
         ];
