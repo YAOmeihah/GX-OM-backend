@@ -63,6 +63,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('stores', StoreController::class);
 
     // 客户相关路由
+    Route::get('customers/workbench-summary', [CustomerController::class, 'workbenchSummary']);
     Route::apiResource('customers', CustomerController::class);
 
     // 需要门店权限检查的客户相关路由
