@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Customer\StoreCustomerRequest;
 use App\Http\Requests\Customer\UpdateCustomerRequest;
 use App\Models\Customer;
+use App\Services\CustomerWorkbenchService;
 use App\Services\DiscountValidationException;
 use App\Services\PaymentDiscountService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +20,10 @@ use Illuminate\Support\Facades\DB;
  */
 class CustomerController extends ApiController
 {
+    public function __construct(
+        private readonly CustomerWorkbenchService $customerWorkbenchService
+    ) {}
+
     /**
      * 获取客户列表
      *
@@ -64,6 +70,10 @@ class CustomerController extends ApiController
      */
     public function index(Request $request)
     {
+        $request->validate([
+            'transaction_date' => ['nullable', 'date_format:Y-m-d'],
+        ]);
+
         $query = Customer::query();
 
         // 获取门店ID用于上下文筛选
@@ -121,6 +131,33 @@ class CustomerController extends ApiController
                 ]);
         }
 
+        if ($request->boolean('has_debt')) {
+            if ($storeId) {
+                $query->where('customer_store_stats.total_debt', '>', 0);
+            } else {
+                $query->havingRaw('COALESCE(SUM(customer_store_stats.total_debt), 0) > 0');
+            }
+        }
+
+        if ($request->filled('transaction_date')) {
+            $transactionDate = Carbon::parse($request->input('transaction_date'))->toDateString();
+            if ($storeId) {
+                $query->whereDate('customer_store_stats.last_transaction_at', $transactionDate);
+            } else {
+                $query->havingRaw('DATE(MAX(customer_store_stats.last_transaction_at)) = ?', [$transactionDate]);
+            }
+        }
+
+        if ($request->boolean('overdue')) {
+            $query->whereExists(function ($subQuery) use ($targetStoreIds) {
+                $subQuery->selectRaw('1')
+                    ->from('invoices')
+                    ->whereColumn('invoices.customer_id', 'customers.id')
+                    ->whereIn('invoices.store_id', $targetStoreIds)
+                    ->where('invoices.status', 'overdue');
+            });
+        }
+
         // ====== 排序策略 ======
         $sortBy = $request->input('sort_by');
         $sortDir = $request->input('sort_dir', 'desc');
@@ -150,6 +187,11 @@ class CustomerController extends ApiController
 
         // 分页
         $customers = $query->paginate($request->input('per_page', 15));
+        $this->customerWorkbenchService->appendListFlags(
+            $customers,
+            $targetStoreIds,
+            Carbon::today()->toDateString()
+        );
 
         \Log::debug('CustomerController.index()', [
             'request_store_id' => $storeId,
@@ -160,6 +202,29 @@ class CustomerController extends ApiController
         // $customers->getCollection()->transform(...) Removed
 
         return $this->successResponse($customers);
+    }
+
+    public function workbenchSummary(Request $request)
+    {
+        $request->validate([
+            'date' => ['nullable', 'date_format:Y-m-d'],
+            'trend_days' => ['nullable', 'integer', 'min:1', 'max:30'],
+        ]);
+
+        $storeId = $request->input('store_id') ? (int) $request->input('store_id') : null;
+        $allowedStoreIds = $this->getUserStoreIds();
+        $targetStoreIds = $storeId && in_array($storeId, $allowedStoreIds, true)
+            ? [$storeId]
+            : $allowedStoreIds;
+
+        $date = $request->filled('date')
+            ? Carbon::parse($request->input('date'))->toDateString()
+            : Carbon::today()->toDateString();
+        $trendDays = max(1, min((int) $request->input('trend_days', 7), 30));
+
+        return $this->successResponse(
+            $this->customerWorkbenchService->summary($targetStoreIds, $date, $trendDays)
+        );
     }
 
     /**
