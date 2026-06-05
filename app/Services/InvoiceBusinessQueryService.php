@@ -15,6 +15,25 @@ class InvoiceBusinessQueryService
 {
     private const OUTSTANDING_STATUSES = ['unpaid', 'partially_paid', 'overdue'];
 
+    public function summary(User $user, int $storeId): array
+    {
+        $this->ensureStoreVisible($user, $storeId);
+
+        $baseQuery = Invoice::query()->where('store_id', $storeId);
+        $today = now()->toDateString();
+        $yesterday = now()->subDay()->toDateString();
+
+        return [
+            'total' => [
+                'count' => (clone $baseQuery)->count(),
+            ],
+            'today' => $this->todaySummaryCount($baseQuery, $today, $yesterday),
+            'unpaid' => $this->summaryCount($baseQuery, $today, $yesterday, ['unpaid']),
+            'outstanding' => $this->summaryCount($baseQuery, $today, $yesterday, self::OUTSTANDING_STATUSES),
+            'overdue' => $this->summaryCount($baseQuery, $today, $yesterday, ['overdue']),
+        ];
+    }
+
     public function allocatable(User $user, int $storeId, int $customerId, int $perPage): array
     {
         $this->ensureStoreVisible($user, $storeId);
@@ -117,6 +136,49 @@ class InvoiceBusinessQueryService
         ];
 
         return $data;
+    }
+
+    private function todaySummaryCount(Builder $baseQuery, string $today, string $yesterday): array
+    {
+        $todayCount = $this->countInvoices($baseQuery, null, $today);
+        $yesterdayCount = $this->countInvoices($baseQuery, null, $yesterday);
+
+        return [
+            'count' => $todayCount,
+            'yesterday_count' => $yesterdayCount,
+            'delta' => $todayCount - $yesterdayCount,
+        ];
+    }
+
+    private function summaryCount(Builder $baseQuery, string $today, string $yesterday, ?array $statuses = null): array
+    {
+        $count = $statuses === null
+            ? $this->countInvoices($baseQuery)
+            : $this->countInvoices($baseQuery, $statuses);
+        $todayCount = $this->countInvoices($baseQuery, $statuses, $today);
+        $yesterdayCount = $this->countInvoices($baseQuery, $statuses, $yesterday);
+
+        return [
+            'count' => $count,
+            'today_count' => $todayCount,
+            'yesterday_count' => $yesterdayCount,
+            'delta' => $todayCount - $yesterdayCount,
+        ];
+    }
+
+    private function countInvoices(Builder $baseQuery, ?array $statuses = null, ?string $date = null): int
+    {
+        $query = clone $baseQuery;
+
+        if ($statuses !== null) {
+            $query->whereIn('status', $statuses);
+        }
+
+        if ($date !== null) {
+            $query->whereDate('created_at', $date);
+        }
+
+        return $query->count();
     }
 
     private function invoicePayload(Invoice $invoice): array

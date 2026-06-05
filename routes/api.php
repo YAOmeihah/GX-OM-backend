@@ -75,6 +75,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // 账单相关路由
+    Route::get('invoices/summary', [InvoiceBusinessController::class, 'summary']);
     Route::get('invoices/allocatable', [InvoiceBusinessController::class, 'allocatable']);
     Route::post('invoices/print-details', [InvoiceBusinessController::class, 'printDetails']);
     Route::get('print-tasks/today-unpaid', [PrintTaskController::class, 'todayUnpaid']);

@@ -12,6 +12,22 @@ class InvoiceBusinessController extends ApiController
 {
     public function __construct(private readonly InvoiceBusinessQueryService $queryService) {}
 
+    public function summary(Request $request)
+    {
+        $validated = $request->validate([
+            'store_id' => ['required', 'integer', 'exists:stores,id'],
+        ]);
+
+        try {
+            return $this->successResponse($this->queryService->summary(
+                Auth::user(),
+                (int) $validated['store_id'],
+            ));
+        } catch (HttpException $exception) {
+            return $this->errorResponse($exception->getMessage(), $exception->getStatusCode());
+        }
+    }
+
     public function allocatable(Request $request)
     {
         $validated = $request->validate([

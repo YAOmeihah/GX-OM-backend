@@ -149,6 +149,17 @@ class InvoiceController extends ApiController
             $query->where('created_by', $request->input('created_by'));
         }
 
+        $search = trim((string) $request->input('search', ''));
+        if ($search !== '') {
+            $query->where(function ($searchQuery) use ($search) {
+                $searchQuery
+                    ->where('invoice_number', 'like', "%{$search}%")
+                    ->orWhereHas('customer', function ($customerQuery) use ($search) {
+                        $customerQuery->where('name', 'like', "%{$search}%");
+                    });
+            });
+        }
+
         // 加载关联数据（包含减免记录、商品明细和附件）
         $query->with(['store:id,name', 'customer:id,name,phone', 'createdBy:id,name', 'discounts', 'items', 'attachments']);
 
