@@ -6,6 +6,7 @@ use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\Store;
+use App\Services\InvoiceBusinessQueryService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -17,6 +18,8 @@ use Illuminate\Support\Facades\Auth;
  */
 class DashboardController extends ApiController
 {
+    public function __construct(private readonly InvoiceBusinessQueryService $queryService) {}
+
     /**
      * 获取仪表盘概览
      *
@@ -33,6 +36,7 @@ class DashboardController extends ApiController
      *     "today": { "invoice_amount": "10000.00", "invoice_count": 5, "payment_amount": "8000.00", "payment_count": 3, "discount_amount": "500.00", "new_customers": 2 },
      *     "yesterday": { "invoice_amount": "9000.00", "invoice_count": 4, "payment_amount": "6000.00", "payment_count": 2, "discount_amount": "300.00", "new_customers": 1 },
      *     "overall": { "invoice_amount": "500000.00", "paid_amount": "350000.00", "outstanding_amount": "145000.00", "discount_amount": "5000.00", "collection_rate": 70.0 },
+     *     "invoice_summary": { "total": { "count": 500 }, "today": { "count": 5, "yesterday_count": 4, "delta": 1 }, "unpaid": { "count": 50, "today_count": 1, "yesterday_count": 1, "delta": 0 }, "outstanding": { "count": 200, "today_count": 2, "yesterday_count": 1, "delta": 1 }, "overdue": { "count": 50, "today_count": 1, "yesterday_count": 0, "delta": 1 } },
      *     "invoice_status_distribution": { "unpaid": 50, "partially_paid": 100, "paid": 300, "overdue": 50 }
      *   }
      * }
@@ -150,6 +154,8 @@ class DashboardController extends ApiController
             ->get()
             ->pluck('count', 'status');
 
+        $invoiceSummary = $this->queryService->summaryForStores($user, $storeIds);
+
         return $this->successResponse([
             'summary' => [
                 'total_customers' => $totalCustomers,
@@ -180,6 +186,7 @@ class DashboardController extends ApiController
                 'discount_amount' => number_format($overallDiscountAmount, 2, '.', ''),
                 'collection_rate' => $collectionRate,
             ],
+            'invoice_summary' => $invoiceSummary,
             'invoice_status_distribution' => [
                 'unpaid' => $invoiceStatusStats['unpaid'] ?? 0,
                 'partially_paid' => $invoiceStatusStats['partially_paid'] ?? 0,

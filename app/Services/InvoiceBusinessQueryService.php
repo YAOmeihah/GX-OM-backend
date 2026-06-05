@@ -17,9 +17,15 @@ class InvoiceBusinessQueryService
 
     public function summary(User $user, int $storeId): array
     {
-        $this->ensureStoreVisible($user, $storeId);
+        return $this->summaryForStores($user, [$storeId]);
+    }
 
-        $baseQuery = Invoice::query()->where('store_id', $storeId);
+    public function summaryForStores(User $user, array $storeIds): array
+    {
+        $storeIds = $this->normalizeStoreIds($storeIds);
+        $this->ensureStoresVisible($user, $storeIds);
+
+        $baseQuery = Invoice::query()->whereIn('store_id', $storeIds);
         $today = now()->toDateString();
         $yesterday = now()->subDay()->toDateString();
 
@@ -197,9 +203,31 @@ class InvoiceBusinessQueryService
 
     private function ensureStoreVisible(User $user, int $storeId): void
     {
-        if (! $user->isAdmin() && ! $user->belongsToStore($storeId)) {
+        $this->ensureStoresVisible($user, [$storeId]);
+    }
+
+    private function ensureStoresVisible(User $user, array $storeIds): void
+    {
+        if ($user->isAdmin() || empty($storeIds)) {
+            return;
+        }
+
+        $visibleStoreIds = $user->stores()
+            ->pluck('stores.id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        if (! empty(array_diff($storeIds, $visibleStoreIds))) {
             throw new HttpException(403, '权限不足');
         }
+    }
+
+    private function normalizeStoreIds(array $storeIds): array
+    {
+        return array_values(array_unique(array_filter(
+            array_map(fn ($storeId) => (int) $storeId, $storeIds),
+            fn (int $storeId) => $storeId > 0,
+        )));
     }
 
     private function actualRemainingExpression(): string
