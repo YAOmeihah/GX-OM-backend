@@ -100,6 +100,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('config/s3/runtime', [ConfigController::class, 'resetS3RuntimeConfig']);
 
     // 还款相关路由
+    Route::get('payments/summary', [PaymentController::class, 'summary']);
     Route::apiResource('payments', PaymentController::class);
     Route::post('payments/{payment}/allocate', [PaymentController::class, 'allocate']);
     Route::post('payments/{payment}/batch-allocate', [PaymentController::class, 'batchAllocate']);

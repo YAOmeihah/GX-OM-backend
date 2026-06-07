@@ -13,6 +13,7 @@ use App\Services\AutoAllocationService;
 use App\Services\DiscountValidationException;
 use App\Services\PaymentCreationService;
 use App\Services\PaymentDiscountService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -35,13 +36,19 @@ class PaymentController extends ApiController
      * 获取还款列表
      *
      * 获取还款记录的分页列表，非管理员只能查看自己所属门店的还款。
-     * 支持按门店、客户、支付方式和日期范围筛选。
+     * 支持按门店、客户、搜索关键词、支付方式、分配状态、金额和日期范围筛选。
      *
      * @queryParam store_id integer 按门店ID筛选 Example: 1
      * @queryParam customer_id integer 按客户ID筛选 Example: 1
+     * @queryParam search string 搜索还款单号、参考号、备注、客户姓名或手机号 Example: 张三
      * @queryParam payment_method string 按支付方式筛选，可选值：cash、bank_transfer、wechat、alipay、other Example: cash
+     * @queryParam allocation_status string 分配状态：unallocated、allocated Example: unallocated
      * @queryParam start_date string 开始日期(YYYY-MM-DD格式) Example: 2024-01-01
      * @queryParam end_date string 结束日期(YYYY-MM-DD格式) Example: 2024-12-31
+     * @queryParam min_amount number 最小还款金额 Example: 100
+     * @queryParam max_amount number 最大还款金额 Example: 1000
+     * @queryParam sort_by string 排序字段：created_at、amount、allocated_amount、unallocated_amount Example: created_at
+     * @queryParam sort_dir string 排序方向：asc、desc Example: desc
      * @queryParam per_page integer 每页显示数量，默认15 Example: 15
      *
      * @response 200 scenario="获取成功" {
@@ -99,6 +106,20 @@ class PaymentController extends ApiController
     public function index(Request $request)
     {
         $user = Auth::user();
+        $validated = $request->validate([
+            'store_id' => 'nullable|integer',
+            'customer_id' => 'nullable|integer',
+            'search' => 'nullable|string',
+            'payment_method' => ['nullable', 'string', Rule::in(['cash', 'bank_transfer', 'wechat', 'alipay', 'other'])],
+            'allocation_status' => ['nullable', 'string', Rule::in(['unallocated', 'allocated'])],
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date|after_or_equal:start_date',
+            'min_amount' => 'nullable|numeric|min:0',
+            'max_amount' => 'nullable|numeric|min:0|gte:min_amount',
+            'sort_by' => 'nullable|string',
+            'sort_dir' => 'nullable|string',
+            'per_page' => 'nullable|integer|min:1|max:100',
+        ]);
         $query = Payment::query();
 
         // 如果不是管理员，只能查看自己所属门店的还款
@@ -109,7 +130,7 @@ class PaymentController extends ApiController
 
         // 按门店筛选
         if ($request->has('store_id')) {
-            $storeId = $request->input('store_id');
+            $storeId = $validated['store_id'];
             // 验证用户是否有权限查看该门店的还款
             if (! $this->isAdmin() && ! $this->belongsToStore($storeId)) {
                 return $this->errorResponse('权限不足', 403);
@@ -119,21 +140,53 @@ class PaymentController extends ApiController
 
         // 按客户筛选
         if ($request->has('customer_id')) {
-            $query->where('customer_id', $request->input('customer_id'));
+            $query->where('customer_id', $validated['customer_id']);
+        }
+
+        if ($request->filled('search')) {
+            $search = trim((string) $validated['search']);
+            $query->where(function ($subQuery) use ($search) {
+                $subQuery
+                    ->where('payment_number', 'like', "%{$search}%")
+                    ->orWhere('reference_number', 'like', "%{$search}%")
+                    ->orWhere('remarks', 'like', "%{$search}%")
+                    ->orWhereHas('customer', function ($customerQuery) use ($search) {
+                        $customerQuery
+                            ->where('name', 'like', "%{$search}%")
+                            ->orWhere('phone', 'like', "%{$search}%");
+                    });
+            });
         }
 
         // 按支付方式筛选
         if ($request->has('payment_method')) {
-            $query->where('payment_method', $request->input('payment_method'));
+            $query->where('payment_method', $validated['payment_method']);
+        }
+
+        if ($request->filled('allocation_status')) {
+            $allocationStatus = $validated['allocation_status'];
+            if ($allocationStatus === 'unallocated') {
+                $query->whereColumn('allocated_amount', '<', 'amount');
+            } elseif ($allocationStatus === 'allocated') {
+                $query->whereColumn('allocated_amount', '>=', 'amount');
+            }
+        }
+
+        if ($request->filled('min_amount')) {
+            $query->where('amount', '>=', $validated['min_amount']);
+        }
+
+        if ($request->filled('max_amount')) {
+            $query->where('amount', '<=', $validated['max_amount']);
         }
 
         // 按日期范围筛选
-        if ($request->has('start_date')) {
-            $query->where('created_at', '>=', $request->input('start_date'));
+        if ($request->filled('start_date')) {
+            $query->where('created_at', '>=', Carbon::parse($validated['start_date'])->startOfDay());
         }
 
-        if ($request->has('end_date')) {
-            $query->where('created_at', '<=', $request->input('end_date'));
+        if ($request->filled('end_date')) {
+            $query->where('created_at', '<=', Carbon::parse($validated['end_date'])->endOfDay());
         }
 
         // 加载关联数据
@@ -148,12 +201,63 @@ class PaymentController extends ApiController
         ]);
 
         // 排序
-        $query->orderBy('created_at', 'desc');
+        $sortBy = $request->input('sort_by', 'created_at');
+        $sortDir = strtolower((string) $request->input('sort_dir', 'desc')) === 'asc' ? 'asc' : 'desc';
+        $allowedSorts = ['created_at', 'amount', 'allocated_amount', 'unallocated_amount'];
+
+        if (! in_array($sortBy, $allowedSorts, true)) {
+            $sortBy = 'created_at';
+        }
+
+        if ($sortBy === 'unallocated_amount') {
+            $query->orderByRaw('(amount - allocated_amount) '.$sortDir);
+        } else {
+            $query->orderBy($sortBy, $sortDir);
+        }
 
         // 分页
         $payments = $query->paginate($request->input('per_page', 15));
 
         return $this->successResponse($payments);
+    }
+
+    /**
+     * 获取门店还款统计
+     *
+     * 返回指定门店的全量还款聚合数据，不受列表搜索、筛选或分页影响。
+     */
+    public function summary(Request $request)
+    {
+        $validated = $request->validate([
+            'store_id' => 'required|integer',
+        ]);
+
+        $storeId = $validated['store_id'];
+        if (! $this->isAdmin() && ! $this->belongsToStore($storeId)) {
+            return $this->errorResponse('权限不足', 403);
+        }
+
+        $baseQuery = Payment::query()->where('store_id', $storeId);
+        $todayCollectedAmount = (clone $baseQuery)
+            ->whereDate('created_at', Carbon::today()->toDateString())
+            ->sum('amount');
+        $totals = (clone $baseQuery)
+            ->selectRaw('COALESCE(SUM(amount), 0) as total_amount')
+            ->selectRaw('COALESCE(SUM(allocated_amount), 0) as allocated_amount')
+            ->first();
+
+        $totalAmount = (float) ($totals->total_amount ?? 0);
+        $allocatedAmount = (float) ($totals->allocated_amount ?? 0);
+        $unallocatedAmount = max(0, $totalAmount - $allocatedAmount);
+        $allocationCompletionRate = $totalAmount > 0
+            ? round($allocatedAmount / $totalAmount, 4)
+            : 0.0;
+
+        return $this->successResponse([
+            'today_collected_amount' => number_format((float) $todayCollectedAmount, 2, '.', ''),
+            'unallocated_amount' => number_format($unallocatedAmount, 2, '.', ''),
+            'allocation_completion_rate' => $allocationCompletionRate,
+        ]);
     }
 
     /**
