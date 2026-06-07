@@ -153,6 +153,77 @@ class PaymentListSearchFilterTest extends TestCase
             ->assertJsonPath('data.data.1.id', $small->id);
     }
 
+    public function test_payment_list_rejects_invalid_filter_parameters(): void
+    {
+        $owner = $this->createStoreOwner([], $this->store);
+
+        Sanctum::actingAs($owner);
+
+        $cases = [
+            [['start_date' => 'not-a-date'], 'start_date'],
+            [['start_date' => '2026-06-07', 'end_date' => '2026-06-06'], 'end_date'],
+            [['allocation_status' => 'pending'], 'allocation_status'],
+            [['min_amount' => 'free'], 'min_amount'],
+            [['min_amount' => '100', 'max_amount' => '50'], 'max_amount'],
+        ];
+
+        foreach ($cases as [$params, $field]) {
+            $query = http_build_query(array_merge(['store_id' => $this->store->id], $params));
+
+            $this->getJson('/api/payments?'.$query)
+                ->assertStatus(422)
+                ->assertJsonValidationErrors($field);
+        }
+    }
+
+    public function test_payment_summary_returns_store_wide_totals(): void
+    {
+        $owner = $this->createStoreOwner([], $this->store);
+        $this->createPayment([
+            'amount' => 100.00,
+            'allocated_amount' => 100.00,
+            'created_at' => '2026-06-07 09:00:00',
+            'updated_at' => '2026-06-07 09:00:00',
+        ]);
+        $this->createPayment([
+            'amount' => 300.00,
+            'allocated_amount' => 50.00,
+            'created_at' => '2026-06-06 09:00:00',
+            'updated_at' => '2026-06-06 09:00:00',
+        ]);
+        $this->createPayment([
+            'amount' => 200.00,
+            'allocated_amount' => 200.00,
+            'created_at' => '2026-06-05 09:00:00',
+            'updated_at' => '2026-06-05 09:00:00',
+        ]);
+        $this->createPayment([
+            'store_id' => $this->otherStore->id,
+            'amount' => 900.00,
+            'allocated_amount' => 0.00,
+            'created_at' => '2026-06-07 09:00:00',
+            'updated_at' => '2026-06-07 09:00:00',
+        ]);
+
+        Sanctum::actingAs($owner);
+
+        $this->getJson('/api/payments/summary?store_id='.$this->store->id)
+            ->assertOk()
+            ->assertJsonPath('data.today_collected_amount', '100.00')
+            ->assertJsonPath('data.unallocated_amount', '250.00')
+            ->assertJsonPath('data.allocation_completion_rate', 0.5833);
+    }
+
+    public function test_payment_summary_rejects_store_outside_user_scope(): void
+    {
+        $owner = $this->createStoreOwner([], $this->store);
+
+        Sanctum::actingAs($owner);
+
+        $this->getJson('/api/payments/summary?store_id='.$this->otherStore->id)
+            ->assertForbidden();
+    }
+
     private function assertPaymentSearchReturns(string $search, array $expectedIds): void
     {
         $response = $this->getJson('/api/payments?store_id='.$this->store->id.'&search='.urlencode($search));

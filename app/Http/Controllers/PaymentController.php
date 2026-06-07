@@ -106,6 +106,20 @@ class PaymentController extends ApiController
     public function index(Request $request)
     {
         $user = Auth::user();
+        $validated = $request->validate([
+            'store_id' => 'nullable|integer',
+            'customer_id' => 'nullable|integer',
+            'search' => 'nullable|string',
+            'payment_method' => ['nullable', 'string', Rule::in(['cash', 'bank_transfer', 'wechat', 'alipay', 'other'])],
+            'allocation_status' => ['nullable', 'string', Rule::in(['unallocated', 'allocated'])],
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date|after_or_equal:start_date',
+            'min_amount' => 'nullable|numeric|min:0',
+            'max_amount' => 'nullable|numeric|min:0|gte:min_amount',
+            'sort_by' => 'nullable|string',
+            'sort_dir' => 'nullable|string',
+            'per_page' => 'nullable|integer|min:1|max:100',
+        ]);
         $query = Payment::query();
 
         // 如果不是管理员，只能查看自己所属门店的还款
@@ -116,7 +130,7 @@ class PaymentController extends ApiController
 
         // 按门店筛选
         if ($request->has('store_id')) {
-            $storeId = $request->input('store_id');
+            $storeId = $validated['store_id'];
             // 验证用户是否有权限查看该门店的还款
             if (! $this->isAdmin() && ! $this->belongsToStore($storeId)) {
                 return $this->errorResponse('权限不足', 403);
@@ -126,11 +140,11 @@ class PaymentController extends ApiController
 
         // 按客户筛选
         if ($request->has('customer_id')) {
-            $query->where('customer_id', $request->input('customer_id'));
+            $query->where('customer_id', $validated['customer_id']);
         }
 
         if ($request->filled('search')) {
-            $search = trim((string) $request->input('search'));
+            $search = trim((string) $validated['search']);
             $query->where(function ($subQuery) use ($search) {
                 $subQuery
                     ->where('payment_number', 'like', "%{$search}%")
@@ -146,11 +160,11 @@ class PaymentController extends ApiController
 
         // 按支付方式筛选
         if ($request->has('payment_method')) {
-            $query->where('payment_method', $request->input('payment_method'));
+            $query->where('payment_method', $validated['payment_method']);
         }
 
         if ($request->filled('allocation_status')) {
-            $allocationStatus = $request->input('allocation_status');
+            $allocationStatus = $validated['allocation_status'];
             if ($allocationStatus === 'unallocated') {
                 $query->whereColumn('allocated_amount', '<', 'amount');
             } elseif ($allocationStatus === 'allocated') {
@@ -159,20 +173,20 @@ class PaymentController extends ApiController
         }
 
         if ($request->filled('min_amount')) {
-            $query->where('amount', '>=', $request->input('min_amount'));
+            $query->where('amount', '>=', $validated['min_amount']);
         }
 
         if ($request->filled('max_amount')) {
-            $query->where('amount', '<=', $request->input('max_amount'));
+            $query->where('amount', '<=', $validated['max_amount']);
         }
 
         // 按日期范围筛选
         if ($request->filled('start_date')) {
-            $query->where('created_at', '>=', Carbon::parse($request->input('start_date'))->startOfDay());
+            $query->where('created_at', '>=', Carbon::parse($validated['start_date'])->startOfDay());
         }
 
         if ($request->filled('end_date')) {
-            $query->where('created_at', '<=', Carbon::parse($request->input('end_date'))->endOfDay());
+            $query->where('created_at', '<=', Carbon::parse($validated['end_date'])->endOfDay());
         }
 
         // 加载关联数据
@@ -205,6 +219,45 @@ class PaymentController extends ApiController
         $payments = $query->paginate($request->input('per_page', 15));
 
         return $this->successResponse($payments);
+    }
+
+    /**
+     * 获取门店还款统计
+     *
+     * 返回指定门店的全量还款聚合数据，不受列表搜索、筛选或分页影响。
+     */
+    public function summary(Request $request)
+    {
+        $validated = $request->validate([
+            'store_id' => 'required|integer',
+        ]);
+
+        $storeId = $validated['store_id'];
+        if (! $this->isAdmin() && ! $this->belongsToStore($storeId)) {
+            return $this->errorResponse('权限不足', 403);
+        }
+
+        $baseQuery = Payment::query()->where('store_id', $storeId);
+        $todayCollectedAmount = (clone $baseQuery)
+            ->whereDate('created_at', Carbon::today()->toDateString())
+            ->sum('amount');
+        $totals = (clone $baseQuery)
+            ->selectRaw('COALESCE(SUM(amount), 0) as total_amount')
+            ->selectRaw('COALESCE(SUM(allocated_amount), 0) as allocated_amount')
+            ->first();
+
+        $totalAmount = (float) ($totals->total_amount ?? 0);
+        $allocatedAmount = (float) ($totals->allocated_amount ?? 0);
+        $unallocatedAmount = max(0, $totalAmount - $allocatedAmount);
+        $allocationCompletionRate = $totalAmount > 0
+            ? round($allocatedAmount / $totalAmount, 4)
+            : 0.0;
+
+        return $this->successResponse([
+            'today_collected_amount' => number_format((float) $todayCollectedAmount, 2, '.', ''),
+            'unallocated_amount' => number_format($unallocatedAmount, 2, '.', ''),
+            'allocation_completion_rate' => $allocationCompletionRate,
+        ]);
     }
 
     /**
