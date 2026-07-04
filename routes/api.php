@@ -168,6 +168,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/install-upload', [SystemUpdateController::class, 'installUpload']);
         Route::get('/runs', [SystemUpdateController::class, 'index']);
         Route::get('/runs/{run}', [SystemUpdateController::class, 'show']);
+        Route::post('/runs/{run}/install', [SystemUpdateController::class, 'installRun']);
         Route::post('/rollback', [SystemUpdateController::class, 'rollback']);
     });
 });

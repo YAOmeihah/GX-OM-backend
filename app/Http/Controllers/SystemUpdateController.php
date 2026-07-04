@@ -94,6 +94,30 @@ class SystemUpdateController extends ApiController
         return $this->successResponse($run->toArray());
     }
 
+    public function installRun(
+        Request $request,
+        SystemUpdateRun $run,
+        SystemUpdateService $systemUpdateService
+    ): \Illuminate\Http\JsonResponse {
+        $request->validate([
+            'confirmed' => ['accepted'],
+        ]);
+
+        try {
+            return $this->successResponse(
+                $systemUpdateService->installUploadedPackage($run),
+                'System update installed.',
+                202
+            );
+        } catch (SystemUpdateEnvironmentNotReadyException $exception) {
+            return $this->errorResponse('System update environment is not ready.', 412, [
+                'preflight' => $exception->report(),
+            ]);
+        } catch (UnexpectedValueException $exception) {
+            return $this->errorResponse($exception->getMessage(), 422);
+        }
+    }
+
     public function rollback(Request $request, InPlaceReleaseInstaller $installer): \Illuminate\Http\JsonResponse
     {
         $payload = $request->validate([

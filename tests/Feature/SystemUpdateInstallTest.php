@@ -21,25 +21,17 @@ class SystemUpdateInstallTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_upload_install_queues_uploaded_release_package_for_background_install(): void
+    public function test_upload_install_stores_uploaded_release_package_without_starting_background_process(): void
     {
         Storage::fake();
         $packagePath = $this->fixturePath('uploaded-release.tar.gz');
         $sha256 = $this->writeValidReleasePackage($packagePath);
-        $startedRunId = null;
 
         Http::fake();
 
-        $this->mock(SystemUpdateProcessStarter::class, function ($mock) use (&$startedRunId): void {
+        $this->mock(SystemUpdateProcessStarter::class, function ($mock): void {
             $mock->shouldReceive('start')
-                ->once()
-                ->with(\Mockery::on(function (SystemUpdateRun $run) use (&$startedRunId): bool {
-                    $startedRunId = $run->id;
-
-                    return $run->status === 'pending'
-                        && $run->step === 'uploaded'
-                        && is_file((string) $run->package_path);
-                }));
+                ->never();
         });
 
         $admin = $this->actingAsAdmin();
@@ -59,9 +51,9 @@ class SystemUpdateInstallTest extends TestCase
 
         $response->assertAccepted()
             ->assertJsonPath('data.status', 'pending')
-            ->assertJsonPath('data.run_id', $startedRunId);
+            ->assertJsonPath('data.step', 'uploaded');
 
-        $run = SystemUpdateRun::query()->findOrFail($startedRunId);
+        $run = SystemUpdateRun::query()->latest('id')->firstOrFail();
         $this->assertSame($admin->id, $run->actor_user_id);
         $this->assertSame('v1.2.4', $run->tag);
         $this->assertSame('1.2.4', $run->version);
@@ -74,6 +66,69 @@ class SystemUpdateInstallTest extends TestCase
         $this->assertSame($sha256, hash_file('sha256', (string) $run->package_path));
 
         Http::assertNothingSent();
+    }
+
+    public function test_start_uploaded_install_endpoint_installs_pending_package_without_background_process(): void
+    {
+        Storage::fake();
+        $root = $this->fixtureDeploymentRoot('uploaded-endpoint');
+        $packagePath = $this->fixturePath('uploaded-endpoint-release.tar.gz');
+        $sha256 = $this->writeValidReleasePackage($packagePath);
+        $commands = [];
+
+        $this->writeDeploymentRoot($root, [
+            '.env' => 'APP_KEY=existing',
+            'storage/app/runtime.txt' => 'local runtime',
+            'public/storage/upload.txt' => 'linked upload',
+            'app/Services/Existing.php' => 'old service',
+            'public/index.php' => 'old public index',
+            'release.json' => '{"version":"1.2.3"}',
+        ]);
+
+        $this->bindInstallerForRoot($root, function (string $command) use (&$commands): void {
+            $commands[] = $command;
+        });
+        $admin = $this->actingAsAdmin();
+
+        $run = SystemUpdateRun::query()->create([
+            'actor_user_id' => $admin->id,
+            'tag' => 'v1.2.4',
+            'version' => '1.2.4',
+            'status' => 'pending',
+            'step' => 'uploaded',
+            'metadata' => ['source' => 'upload', 'package_name' => 'gx-om-backend-v1.2.4.tar.gz'],
+            'log_lines' => ['Uploaded release package.'],
+            'package_path' => $packagePath,
+            'package_sha256' => $sha256,
+            'started_at' => now(),
+        ]);
+
+        $response = $this->postJson("/api/system-updates/runs/{$run->id}/install", [
+            'confirmed' => true,
+        ]);
+
+        $response->assertAccepted()
+            ->assertJsonPath('data.run_id', $run->id)
+            ->assertJsonPath('data.status', 'completed');
+
+        $this->assertSame('new service', file_get_contents($root.'/app/Services/Existing.php'));
+        $this->assertSame('local runtime', file_get_contents($root.'/storage/app/runtime.txt'));
+        $this->assertSame('linked upload', file_get_contents($root.'/public/storage/upload.txt'));
+        $this->assertSame([
+            'down',
+            'migrate --force',
+            'optimize:clear',
+            'storage:link --force',
+            'up',
+        ], $commands);
+
+        $run->refresh();
+        $this->assertSame('completed', $run->status);
+        $this->assertSame('completed', $run->step);
+        $this->assertNotNull($run->backup_path);
+        $this->assertContains('Started uploaded release package install.', $run->log_lines);
+        $this->assertContains('Uploaded release package install completed.', $run->log_lines);
+        $this->assertContains('Replacing managed application files.', $run->log_lines);
     }
 
     public function test_artisan_system_update_run_installs_queued_uploaded_package(): void
@@ -292,13 +347,17 @@ class SystemUpdateInstallTest extends TestCase
         ]);
     }
 
-    public function test_install_uses_configured_php_binary_for_artisan_commands(): void
+    public function test_install_uses_in_process_artisan_calls_instead_of_configured_php_binary(): void
     {
         Storage::fake();
         $root = $this->fixtureDeploymentRoot('configured-php-binary');
         $packagePath = $this->fixturePath('configured-php-binary-release.tar.gz');
         $fakePhpLogPath = $this->fixturePath('configured-php-binary.log');
         $fakePhpPath = $this->writeFakePhpBinary($fakePhpLogPath);
+
+        if (is_file($fakePhpLogPath)) {
+            unlink($fakePhpLogPath);
+        }
 
         config()->set('system_update.php_binary', $fakePhpPath);
 
@@ -347,18 +406,19 @@ class SystemUpdateInstallTest extends TestCase
         $this->bindInstallerForRootUsingRealCommands($root);
         $this->actingAsAdmin();
 
+        Artisan::shouldReceive('call')->once()->with('down')->andReturn(0);
+        Artisan::shouldReceive('call')->once()->with('migrate --force')->andReturn(0);
+        Artisan::shouldReceive('call')->once()->with('optimize:clear')->andReturn(0);
+        Artisan::shouldReceive('call')->once()->with('storage:link --force')->andReturn(0);
+        Artisan::shouldReceive('call')->once()->with('up')->andReturn(0);
+
         $this->postJson('/api/system-updates/install', [
             'tag' => 'v1.2.4',
             'sha256' => hash_file('sha256', $packagePath),
             'confirmed' => true,
         ])->assertAccepted();
 
-        $commandLog = file_get_contents($fakePhpLogPath);
-        $this->assertMatchesRegularExpression('/artisan"?\s+down/', $commandLog);
-        $this->assertMatchesRegularExpression('/artisan"?\s+migrate --force/', $commandLog);
-        $this->assertMatchesRegularExpression('/artisan"?\s+optimize:clear/', $commandLog);
-        $this->assertMatchesRegularExpression('/artisan"?\s+storage:link --force/', $commandLog);
-        $this->assertMatchesRegularExpression('/artisan"?\s+up/', $commandLog);
+        $this->assertFileDoesNotExist($fakePhpLogPath);
     }
 
     public function test_failed_install_restores_backup_and_brings_application_up(): void

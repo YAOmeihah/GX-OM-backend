@@ -3,6 +3,7 @@
 namespace App\Services\SystemUpdate;
 
 use Illuminate\Filesystem\Filesystem;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 use Throwable;
@@ -46,7 +47,7 @@ class InPlaceReleaseInstaller
     /**
      * @return array<string, mixed>
      */
-    public function install(string $tag, string $downloadUrl, string $sha256): array
+    public function install(string $tag, string $downloadUrl, string $sha256, ?callable $progressReporter = null): array
     {
         $this->verifier->assertValidTag($tag);
 
@@ -54,15 +55,16 @@ class InPlaceReleaseInstaller
         $packagePath = $workspace['downloads'].DIRECTORY_SEPARATOR."gx-om-backend-{$tag}.tar.gz";
         $this->ensureWorkspaceDirectories($workspace);
 
+        $this->reportProgress($progressReporter, 'downloading', 'Downloading release package.');
         $this->downloadPackage($downloadUrl, $packagePath);
 
-        return $this->installPreparedPackage($tag, $packagePath, $sha256, $workspace);
+        return $this->installPreparedPackage($tag, $packagePath, $sha256, $workspace, $progressReporter);
     }
 
     /**
      * @return array<string, mixed>
      */
-    public function installFromPackage(string $tag, string $packagePath, string $sha256): array
+    public function installFromPackage(string $tag, string $packagePath, string $sha256, ?callable $progressReporter = null): array
     {
         $this->verifier->assertValidTag($tag);
 
@@ -73,7 +75,7 @@ class InPlaceReleaseInstaller
         $workspace = $this->workspace($tag);
         $this->ensureWorkspaceDirectories($workspace);
 
-        return $this->installPreparedPackage($tag, $packagePath, $sha256, $workspace);
+        return $this->installPreparedPackage($tag, $packagePath, $sha256, $workspace, $progressReporter);
     }
 
     /**
@@ -119,26 +121,42 @@ class InPlaceReleaseInstaller
      * @param  array{downloads: string, staging: string, backups: string, runs: string}  $workspace
      * @return array<string, mixed>
      */
-    private function installPreparedPackage(string $tag, string $packagePath, string $sha256, array $workspace): array
-    {
+    private function installPreparedPackage(
+        string $tag,
+        string $packagePath,
+        string $sha256,
+        array $workspace,
+        ?callable $progressReporter = null
+    ): array {
         $root = $this->root();
         $stagingPath = $workspace['staging'].DIRECTORY_SEPARATOR.$tag.'-'.uniqid('', true);
         $backupPath = $workspace['backups'].DIRECTORY_SEPARATOR.$tag.'-'.date('YmdHis').'-'.uniqid('', true);
 
+        $this->reportProgress($progressReporter, 'verifying', 'Verifying release package.');
         $this->verifier->assertSha256($packagePath, $sha256);
         $this->verifier->assertSafeArchive($packagePath);
 
         try {
+            $this->reportProgress($progressReporter, 'extracting', 'Extracting release package.');
             $this->extractArchive($packagePath, $stagingPath);
+            $this->reportProgress($progressReporter, 'backing_up', 'Backing up managed application files.');
             $this->backupManagedEntries($root, $backupPath);
+            $this->reportProgress($progressReporter, 'maintenance_down', 'Putting application into maintenance mode.');
             $this->runArtisanCommand('down', $root);
+            $this->reportProgress($progressReporter, 'replacing', 'Replacing managed application files.');
             $this->replaceManagedEntries($root, $stagingPath);
+            $this->reportProgress($progressReporter, 'migrating', 'Running database migrations.');
             $this->runArtisanCommand('migrate --force', $root);
+            $this->reportProgress($progressReporter, 'clearing_cache', 'Clearing application caches.');
             $this->runArtisanCommand('optimize:clear', $root);
+            $this->reportProgress($progressReporter, 'linking_storage', 'Refreshing storage link.');
             $this->runArtisanCommand('storage:link --force', $root);
+            $this->reportProgress($progressReporter, 'maintenance_up', 'Bringing application back online.');
             $this->runArtisanCommand('up', $root);
+            $this->reportProgress($progressReporter, 'pruning_backups', 'Pruning old update backups.');
             $this->pruneBackups($workspace['backups']);
         } catch (Throwable $throwable) {
+            $this->reportProgress($progressReporter, 'rolling_back', 'Install failed; restoring backup.');
             $this->restoreBackup($root, $backupPath);
             $this->tryBringApplicationUp($root);
 
@@ -295,14 +313,17 @@ class InPlaceReleaseInstaller
             return;
         }
 
-        $configuredBinary = trim((string) config('system_update.php_binary', ''));
-        $binary = $configuredBinary !== '' ? $configuredBinary : PHP_BINARY;
-        $artisan = $root.DIRECTORY_SEPARATOR.'artisan';
-        $fullCommand = escapeshellarg($binary).' '.escapeshellarg($artisan).' '.$command.' 2>&1';
-        exec($fullCommand, $output, $exitCode);
+        $exitCode = Artisan::call($command);
 
         if ($exitCode !== 0) {
-            throw new RuntimeException("Artisan command failed [{$command}]: ".implode("\n", $output));
+            throw new RuntimeException("Artisan command failed [{$command}]: ".Artisan::output());
+        }
+    }
+
+    private function reportProgress(?callable $progressReporter, string $step, string $line): void
+    {
+        if ($progressReporter !== null) {
+            $progressReporter($step, $line);
         }
     }
 
