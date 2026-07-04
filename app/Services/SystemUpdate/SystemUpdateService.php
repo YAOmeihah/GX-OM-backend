@@ -131,20 +131,8 @@ class SystemUpdateService
         $this->environmentPreflight->ensureReady();
 
         $tag = $payload['tag'];
-        $latest = $this->githubReleaseClient->latestRelease();
-
-        if (($latest['tag'] ?? null) !== $tag) {
-            throw new \UnexpectedValueException('Requested release tag does not match the latest release.');
-        }
-
-        $expectedSha256 = strtolower((string) ($latest['package']['sha256'] ?? ''));
         $providedSha256 = strtolower($payload['sha256']);
-
-        if ($expectedSha256 === '' || $expectedSha256 !== $providedSha256) {
-            throw new \UnexpectedValueException('Release package SHA256 does not match the latest release metadata.');
-        }
-
-        $expectedName = (string) ($latest['package']['name'] ?? "gx-om-backend-{$tag}.tar.gz");
+        $expectedName = "gx-om-backend-{$tag}.tar.gz";
         $originalName = $package->getClientOriginalName();
 
         if ($originalName !== $expectedName) {

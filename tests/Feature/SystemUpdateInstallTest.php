@@ -28,23 +28,7 @@ class SystemUpdateInstallTest extends TestCase
         $sha256 = $this->writeValidReleasePackage($packagePath);
         $startedRunId = null;
 
-        Http::fake([
-            'api.github.com/repos/*/releases/latest' => Http::response([
-                'tag_name' => 'v1.2.4',
-                'draft' => false,
-                'prerelease' => false,
-                'assets' => [
-                    ['name' => 'release-manifest.json', 'browser_download_url' => 'https://example.test/release-manifest.json'],
-                    ['name' => 'gx-om-backend-v1.2.4.tar.gz', 'browser_download_url' => 'https://example.test/gx-om-backend-v1.2.4.tar.gz'],
-                    ['name' => 'gx-om-backend-v1.2.4.tar.gz.sha256', 'browser_download_url' => 'https://example.test/pkg.tar.gz.sha256'],
-                ],
-            ]),
-            'example.test/release-manifest.json' => Http::response(json_encode([
-                'version' => '1.2.4',
-                'sha256' => $sha256,
-            ], JSON_THROW_ON_ERROR)),
-            'example.test/pkg.tar.gz.sha256' => Http::response($sha256.'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
-        ]);
+        Http::fake();
 
         $this->mock(SystemUpdateProcessStarter::class, function ($mock) use (&$startedRunId): void {
             $mock->shouldReceive('start')
@@ -89,7 +73,7 @@ class SystemUpdateInstallTest extends TestCase
         $this->assertFileExists((string) $run->package_path);
         $this->assertSame($sha256, hash_file('sha256', (string) $run->package_path));
 
-        Http::assertSentCount(3);
+        Http::assertNothingSent();
     }
 
     public function test_artisan_system_update_run_installs_queued_uploaded_package(): void
