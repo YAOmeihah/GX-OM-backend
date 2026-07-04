@@ -41,7 +41,7 @@ class SystemUpdateController extends ApiController
         ]);
 
         try {
-            return $this->successResponse($systemUpdateService->install($payload), 'System update installed.', 202);
+            return $this->successResponse($systemUpdateService->install($payload), 'System update install started.', 202);
         } catch (SystemUpdateEnvironmentNotReadyException $exception) {
             return $this->errorResponse('System update environment is not ready.', 412, [
                 'preflight' => $exception->report(),
@@ -106,7 +106,7 @@ class SystemUpdateController extends ApiController
         try {
             return $this->successResponse(
                 $systemUpdateService->installUploadedPackage($run),
-                'System update installed.',
+                'System update install started.',
                 202
             );
         } catch (SystemUpdateEnvironmentNotReadyException $exception) {

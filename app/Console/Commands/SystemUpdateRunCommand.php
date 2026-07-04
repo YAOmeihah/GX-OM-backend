@@ -3,7 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\SystemUpdateRun;
-use App\Services\SystemUpdate\InPlaceReleaseInstaller;
+use App\Services\SystemUpdate\SystemUpdateService;
 use Illuminate\Console\Command;
 use Throwable;
 
@@ -13,7 +13,7 @@ class SystemUpdateRunCommand extends Command
 
     protected $description = 'Install a queued system update package';
 
-    public function handle(InPlaceReleaseInstaller $installer): int
+    public function handle(SystemUpdateService $systemUpdateService): int
     {
         $run = SystemUpdateRun::query()->find((int) $this->argument('run'));
 
@@ -23,7 +23,7 @@ class SystemUpdateRunCommand extends Command
             return self::FAILURE;
         }
 
-        if (! in_array($run->status, ['pending', 'running'], true)) {
+        if (! in_array($run->status, ['pending', 'failed', 'running'], true)) {
             $this->error("System update run is not installable from status [{$run->status}].");
 
             return self::FAILURE;
@@ -41,23 +41,8 @@ class SystemUpdateRunCommand extends Command
             return self::FAILURE;
         }
 
-        $run->update([
-            'status' => 'running',
-            'step' => 'installing',
-            'log_lines' => array_merge($run->log_lines ?? [], ['Started uploaded release package install.']),
-        ]);
-
         try {
-            $result = $installer->installFromPackage($run->tag, $run->package_path, (string) $run->package_sha256);
-
-            $run->update([
-                'status' => 'completed',
-                'step' => 'completed',
-                'backup_path' => $result['backup_path'] ?? null,
-                'package_path' => $result['package_path'] ?? $run->package_path,
-                'log_lines' => array_merge($run->log_lines ?? [], ['Uploaded release package install completed.']),
-                'finished_at' => now(),
-            ]);
+            $systemUpdateService->installUploadedPackageNow($run);
 
             $this->info('System update install completed.');
 

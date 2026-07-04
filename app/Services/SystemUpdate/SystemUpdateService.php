@@ -13,6 +13,7 @@ class SystemUpdateService
         private readonly GitHubReleaseClient $githubReleaseClient,
         private readonly InPlaceReleaseInstaller $installer,
         private readonly SystemUpdateEnvironmentPreflight $environmentPreflight,
+        private readonly SystemUpdateDeferredRunner $deferredRunner,
     ) {}
 
     /**
@@ -89,37 +90,16 @@ class SystemUpdateService
             'log_lines' => ['Started system update install.'],
         ]);
 
-        try {
-            $result = $this->installer->install(
-                $tag,
-                $downloadUrl,
-                $payload['sha256'],
-                fn (string $step, string $line): bool => $this->appendRunLog($run, $line, $step),
-            );
+        $sha256 = strtolower($payload['sha256']);
+        $this->deferredRunner->afterResponse(
+            fn (): array => $this->completeTrustedReleaseInstall($run->id, $tag, $downloadUrl, $sha256)
+        );
 
-            $run->update([
-                'status' => 'completed',
-                'step' => 'completed',
-                'backup_path' => $result['backup_path'] ?? null,
-                'package_path' => $result['package_path'] ?? null,
-                'metadata' => ['download_url' => $downloadUrl],
-                'log_lines' => array_merge($run->log_lines ?? [], ['System update install completed.']),
-                'finished_at' => now(),
-            ]);
-
-            return ['run_id' => $run->id, ...$result];
-        } catch (Throwable $throwable) {
-            $run->update([
-                'status' => 'failed',
-                'step' => 'rolled_back',
-                'metadata' => ['download_url' => $downloadUrl],
-                'log_lines' => array_merge($run->log_lines ?? [], ['System update install failed; rollback attempted.']),
-                'error_message' => $throwable->getMessage(),
-                'finished_at' => now(),
-            ]);
-
-            throw $throwable;
-        }
+        return [
+            'run_id' => $run->id,
+            'status' => 'running',
+            'step' => 'installing',
+        ];
     }
 
     /**
@@ -190,33 +170,49 @@ class SystemUpdateService
      */
     public function installUploadedPackage(SystemUpdateRun $run): array
     {
-        $this->environmentPreflight->ensureReady();
+        $run = $this->markUploadedPackageInstallRunning($run);
 
-        if (! in_array($run->status, ['pending', 'failed'], true)) {
-            throw new \UnexpectedValueException("System update run is not installable from status [{$run->status}].");
-        }
+        $this->deferredRunner->afterResponse(
+            fn (): array => $this->completeUploadedPackageInstall($run->id)
+        );
 
-        if (! $run->package_path || ! is_file($run->package_path)) {
-            $run->update([
-                'status' => 'failed',
-                'step' => 'uploaded',
-                'error_message' => 'Uploaded release package is missing.',
-                'finished_at' => now(),
-            ]);
-
-            throw new \UnexpectedValueException('Uploaded release package is missing.');
-        }
-
-        $run->update([
+        return [
+            'run_id' => $run->id,
             'status' => 'running',
             'step' => 'installing',
-            'error_message' => null,
-            'started_at' => now(),
-            'finished_at' => null,
-            'log_lines' => array_merge($run->log_lines ?? [], ['Started uploaded release package install.']),
-        ]);
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function installUploadedPackageNow(SystemUpdateRun $run): array
+    {
+        $run = $this->markUploadedPackageInstallRunning($run, true);
+
+        return $this->completeUploadedPackageInstall($run->id, true);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function completeUploadedPackageInstall(int $runId, bool $throwOnFailure = false): array
+    {
+        $run = SystemUpdateRun::query()->find($runId);
+
+        if (! $run) {
+            return [
+                'run_id' => $runId,
+                'status' => 'failed',
+                'step' => 'missing',
+            ];
+        }
 
         try {
+            if (! $run->package_path || ! is_file($run->package_path)) {
+                throw new \UnexpectedValueException('Uploaded release package is missing.');
+            }
+
             $result = $this->installer->installFromPackage(
                 $run->tag,
                 $run->package_path,
@@ -248,8 +244,140 @@ class SystemUpdateService
                 'finished_at' => now(),
             ]);
 
-            throw $throwable;
+            if ($throwOnFailure) {
+                throw $throwable;
+            }
+
+            report($throwable);
+
+            return [
+                'run_id' => $run->id,
+                'status' => 'failed',
+                'step' => 'rolled_back',
+            ];
         }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function completeTrustedReleaseInstall(
+        int $runId,
+        string $tag,
+        string $downloadUrl,
+        string $sha256
+    ): array {
+        $run = SystemUpdateRun::query()->find($runId);
+
+        if (! $run) {
+            return [
+                'run_id' => $runId,
+                'status' => 'failed',
+                'step' => 'missing',
+            ];
+        }
+
+        try {
+            $result = $this->installer->install(
+                $tag,
+                $downloadUrl,
+                $sha256,
+                fn (string $step, string $line): bool => $this->appendRunLog($run, $line, $step),
+            );
+
+            $run->update([
+                'status' => 'completed',
+                'step' => 'completed',
+                'backup_path' => $result['backup_path'] ?? null,
+                'package_path' => $result['package_path'] ?? null,
+                'metadata' => ['download_url' => $downloadUrl],
+                'log_lines' => array_merge($run->log_lines ?? [], ['System update install completed.']),
+                'finished_at' => now(),
+            ]);
+
+            return ['run_id' => $run->id, 'status' => 'completed', 'step' => 'completed', ...$result];
+        } catch (Throwable $throwable) {
+            $run->update([
+                'status' => 'failed',
+                'step' => 'rolled_back',
+                'metadata' => ['download_url' => $downloadUrl],
+                'log_lines' => array_merge($run->log_lines ?? [], ['System update install failed; rollback attempted.']),
+                'error_message' => $throwable->getMessage(),
+                'finished_at' => now(),
+            ]);
+
+            report($throwable);
+
+            return [
+                'run_id' => $run->id,
+                'status' => 'failed',
+                'step' => 'rolled_back',
+            ];
+        }
+    }
+
+    private function markUploadedPackageInstallRunning(SystemUpdateRun $run, bool $allowRunning = false): SystemUpdateRun
+    {
+        $this->environmentPreflight->ensureReady();
+        $run->refresh();
+
+        $wasRunning = $run->status === 'running';
+        $allowedStatuses = ['pending', 'failed'];
+
+        if ($allowRunning || $this->isStaleUploadedPackageRun($run)) {
+            $allowedStatuses[] = 'running';
+        }
+
+        if (! in_array($run->status, $allowedStatuses, true)) {
+            throw new \UnexpectedValueException("System update run is not installable from status [{$run->status}].");
+        }
+
+        if (! $run->package_path || ! is_file($run->package_path)) {
+            $run->update([
+                'status' => 'failed',
+                'step' => 'uploaded',
+                'error_message' => 'Uploaded release package is missing.',
+                'finished_at' => now(),
+            ]);
+
+            throw new \UnexpectedValueException('Uploaded release package is missing.');
+        }
+
+        $run->update([
+            'status' => 'running',
+            'step' => 'installing',
+            'error_message' => null,
+            'started_at' => now(),
+            'finished_at' => null,
+            'log_lines' => array_merge($run->log_lines ?? [], [
+                $wasRunning
+                    ? 'Restarted stale uploaded release package install.'
+                    : 'Started uploaded release package install.',
+            ]),
+        ]);
+
+        return $run->refresh();
+    }
+
+    private function isStaleUploadedPackageRun(SystemUpdateRun $run): bool
+    {
+        if ($run->status !== 'running' || ! $run->package_path) {
+            return false;
+        }
+
+        if (($run->metadata['source'] ?? null) !== 'upload') {
+            return false;
+        }
+
+        $staleMinutes = (int) config('system_update.stale_run_minutes', 10);
+
+        if ($staleMinutes < 1) {
+            return false;
+        }
+
+        $lastTouchedAt = $run->updated_at ?? $run->started_at ?? $run->created_at;
+
+        return $lastTouchedAt !== null && $lastTouchedAt->lte(now()->subMinutes($staleMinutes));
     }
 
     private function hasUpdate(string $currentVersion, string $latestVersion): bool

@@ -7,6 +7,7 @@ use App\Models\SystemUpdateRun;
 use App\Models\User;
 use App\Services\SystemUpdate\InPlaceReleaseInstaller;
 use App\Services\SystemUpdate\ReleasePackageVerifier;
+use App\Services\SystemUpdate\SystemUpdateDeferredRunner;
 use App\Services\SystemUpdate\SystemUpdateProcessStarter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
+use Mockery;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -68,11 +70,95 @@ class SystemUpdateInstallTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_start_uploaded_install_endpoint_installs_pending_package_without_background_process(): void
+    public function test_start_uploaded_install_endpoint_defers_pending_package_install_until_after_response(): void
     {
         Storage::fake();
         $root = $this->fixtureDeploymentRoot('uploaded-endpoint');
         $packagePath = $this->fixturePath('uploaded-endpoint-release.tar.gz');
+        $sha256 = $this->writeValidReleasePackage($packagePath);
+        $commands = [];
+        $deferredTasks = [];
+
+        $this->writeDeploymentRoot($root, [
+            '.env' => 'APP_KEY=existing',
+            'storage/app/runtime.txt' => 'local runtime',
+            'public/storage/upload.txt' => 'linked upload',
+            'app/Services/Existing.php' => 'old service',
+            'public/index.php' => 'old public index',
+            'release.json' => '{"version":"1.2.3"}',
+        ]);
+
+        $this->bindInstallerForRoot($root, function (string $command) use (&$commands): void {
+            $commands[] = $command;
+        });
+        $this->mock(SystemUpdateDeferredRunner::class, function ($mock) use (&$deferredTasks): void {
+            $mock->shouldReceive('afterResponse')
+                ->once()
+                ->with(Mockery::on(function (callable $task) use (&$deferredTasks): bool {
+                    $deferredTasks[] = $task;
+
+                    return true;
+                }));
+        });
+        $admin = $this->actingAsAdmin();
+
+        $run = SystemUpdateRun::query()->create([
+            'actor_user_id' => $admin->id,
+            'tag' => 'v1.2.4',
+            'version' => '1.2.4',
+            'status' => 'pending',
+            'step' => 'uploaded',
+            'metadata' => ['source' => 'upload', 'package_name' => 'gx-om-backend-v1.2.4.tar.gz'],
+            'log_lines' => ['Uploaded release package.'],
+            'package_path' => $packagePath,
+            'package_sha256' => $sha256,
+            'started_at' => now(),
+        ]);
+
+        $response = $this->postJson("/api/system-updates/runs/{$run->id}/install", [
+            'confirmed' => true,
+        ]);
+
+        $response->assertAccepted()
+            ->assertJsonPath('data.run_id', $run->id)
+            ->assertJsonPath('data.status', 'running')
+            ->assertJsonPath('data.step', 'installing');
+
+        $this->assertSame('old service', file_get_contents($root.'/app/Services/Existing.php'));
+        $this->assertSame([], $commands);
+
+        $run->refresh();
+        $this->assertSame('running', $run->status);
+        $this->assertSame('installing', $run->step);
+        $this->assertCount(1, $deferredTasks);
+
+        $deferredTasks[0]();
+
+        $this->assertSame('new service', file_get_contents($root.'/app/Services/Existing.php'));
+        $this->assertSame('local runtime', file_get_contents($root.'/storage/app/runtime.txt'));
+        $this->assertSame('linked upload', file_get_contents($root.'/public/storage/upload.txt'));
+        $this->assertSame([
+            'down',
+            'migrate --force',
+            'optimize:clear',
+            'storage:link --force',
+            'up',
+        ], $commands);
+
+        $run->refresh();
+        $this->assertSame('completed', $run->status);
+        $this->assertSame('completed', $run->step);
+        $this->assertNotNull($run->backup_path);
+        $this->assertContains('Started uploaded release package install.', $run->log_lines);
+        $this->assertContains('Uploaded release package install completed.', $run->log_lines);
+        $this->assertContains('Replacing managed application files.', $run->log_lines);
+    }
+
+    public function test_http_lifecycle_runs_deferred_uploaded_install_after_returning_running_response(): void
+    {
+        Storage::fake();
+        $root = $this->fixtureDeploymentRoot('uploaded-http-lifecycle');
+        $packagePath = $this->fixturePath('uploaded-http-lifecycle-release.tar.gz');
         $sha256 = $this->writeValidReleasePackage($packagePath);
         $commands = [];
 
@@ -109,11 +195,10 @@ class SystemUpdateInstallTest extends TestCase
 
         $response->assertAccepted()
             ->assertJsonPath('data.run_id', $run->id)
-            ->assertJsonPath('data.status', 'completed');
+            ->assertJsonPath('data.status', 'running')
+            ->assertJsonPath('data.step', 'installing');
 
         $this->assertSame('new service', file_get_contents($root.'/app/Services/Existing.php'));
-        $this->assertSame('local runtime', file_get_contents($root.'/storage/app/runtime.txt'));
-        $this->assertSame('linked upload', file_get_contents($root.'/public/storage/upload.txt'));
         $this->assertSame([
             'down',
             'migrate --force',
@@ -125,10 +210,122 @@ class SystemUpdateInstallTest extends TestCase
         $run->refresh();
         $this->assertSame('completed', $run->status);
         $this->assertSame('completed', $run->step);
-        $this->assertNotNull($run->backup_path);
+        $this->assertContains('Verifying release package.', $run->log_lines);
+        $this->assertContains('Uploaded release package install completed.', $run->log_lines);
+    }
+
+    public function test_http_lifecycle_records_deferred_uploaded_install_failure_after_running_response(): void
+    {
+        Storage::fake();
+        $root = $this->fixtureDeploymentRoot('uploaded-http-failure');
+        $packagePath = $this->fixturePath('uploaded-http-failure-release.tar.gz');
+        $sha256 = $this->writeValidReleasePackage($packagePath);
+        $commands = [];
+
+        $this->writeDeploymentRoot($root, [
+            '.env' => 'APP_KEY=existing',
+            'storage/app/runtime.txt' => 'local runtime',
+            'public/storage/upload.txt' => 'linked upload',
+            'app/Services/Existing.php' => 'old service',
+            'public/index.php' => 'old public index',
+            'release.json' => '{"version":"1.2.3"}',
+        ]);
+
+        $this->bindInstallerForRoot($root, function (string $command) use (&$commands): void {
+            $commands[] = $command;
+
+            if ($command === 'migrate --force') {
+                throw new RuntimeException('Migration failed.');
+            }
+        });
+        $admin = $this->actingAsAdmin();
+
+        $run = SystemUpdateRun::query()->create([
+            'actor_user_id' => $admin->id,
+            'tag' => 'v1.2.4',
+            'version' => '1.2.4',
+            'status' => 'pending',
+            'step' => 'uploaded',
+            'metadata' => ['source' => 'upload', 'package_name' => 'gx-om-backend-v1.2.4.tar.gz'],
+            'log_lines' => ['Uploaded release package.'],
+            'package_path' => $packagePath,
+            'package_sha256' => $sha256,
+            'started_at' => now(),
+        ]);
+
+        $response = $this->postJson("/api/system-updates/runs/{$run->id}/install", [
+            'confirmed' => true,
+        ]);
+
+        $response->assertAccepted()
+            ->assertJsonPath('data.run_id', $run->id)
+            ->assertJsonPath('data.status', 'running')
+            ->assertJsonPath('data.step', 'installing');
+
+        $this->assertSame('old service', file_get_contents($root.'/app/Services/Existing.php'));
+        $this->assertSame(['down', 'migrate --force', 'up'], $commands);
+
+        $run->refresh();
+        $this->assertSame('failed', $run->status);
+        $this->assertSame('rolled_back', $run->step);
+        $this->assertSame('Migration failed.', $run->error_message);
+        $this->assertContains('Install failed; restoring backup.', $run->log_lines);
+        $this->assertContains('Uploaded release package install failed; rollback attempted.', $run->log_lines);
+    }
+
+    public function test_stale_running_uploaded_install_can_be_restarted_from_api(): void
+    {
+        Storage::fake();
+        $root = $this->fixtureDeploymentRoot('uploaded-stale-running');
+        $packagePath = $this->fixturePath('uploaded-stale-running-release.tar.gz');
+        $sha256 = $this->writeValidReleasePackage($packagePath);
+
+        config()->set('system_update.stale_run_minutes', 10);
+
+        $this->writeDeploymentRoot($root, [
+            '.env' => 'APP_KEY=existing',
+            'storage/app/runtime.txt' => 'local runtime',
+            'public/storage/upload.txt' => 'linked upload',
+            'app/Services/Existing.php' => 'old service',
+            'public/index.php' => 'old public index',
+            'release.json' => '{"version":"1.2.3"}',
+        ]);
+
+        $this->bindInstallerForRoot($root);
+        $admin = $this->actingAsAdmin();
+
+        $run = SystemUpdateRun::query()->create([
+            'actor_user_id' => $admin->id,
+            'tag' => 'v1.2.4',
+            'version' => '1.2.4',
+            'status' => 'running',
+            'step' => 'verifying',
+            'metadata' => ['source' => 'upload', 'package_name' => 'gx-om-backend-v1.2.4.tar.gz'],
+            'log_lines' => ['Started uploaded release package install.', 'Verifying release package.'],
+            'package_path' => $packagePath,
+            'package_sha256' => $sha256,
+            'started_at' => now()->subMinutes(15),
+        ]);
+        $run->timestamps = false;
+        $run->updated_at = now()->subMinutes(15);
+        $run->save();
+
+        $response = $this->postJson("/api/system-updates/runs/{$run->id}/install", [
+            'confirmed' => true,
+        ]);
+
+        $response->assertAccepted()
+            ->assertJsonPath('data.run_id', $run->id)
+            ->assertJsonPath('data.status', 'running')
+            ->assertJsonPath('data.step', 'installing');
+
+        $this->assertSame('new service', file_get_contents($root.'/app/Services/Existing.php'));
+
+        $run->refresh();
+        $this->assertSame('completed', $run->status);
+        $this->assertSame('completed', $run->step);
         $this->assertContains('Started uploaded release package install.', $run->log_lines);
         $this->assertContains('Uploaded release package install completed.', $run->log_lines);
-        $this->assertContains('Replacing managed application files.', $run->log_lines);
     }
 
     public function test_artisan_system_update_run_installs_queued_uploaded_package(): void
@@ -240,6 +437,8 @@ class SystemUpdateInstallTest extends TestCase
             $commands[] = $command;
         });
         $admin = $this->actingAsAdmin();
+        $deferredTasks = [];
+        $this->captureDeferredTasks($deferredTasks);
 
         $response = $this->postJson('/api/system-updates/install', [
             'tag' => 'v1.2.4',
@@ -247,7 +446,14 @@ class SystemUpdateInstallTest extends TestCase
             'confirmed' => true,
         ]);
 
-        $response->assertAccepted();
+        $response->assertAccepted()
+            ->assertJsonPath('data.status', 'running')
+            ->assertJsonPath('data.step', 'installing');
+        $this->assertSame('old service', file_get_contents($root.'/app/Services/Existing.php'));
+        $this->assertCount(1, $deferredTasks);
+
+        $deferredTasks[0]();
+
         $this->assertSame('APP_KEY=existing', file_get_contents($root.'/.env'));
         $this->assertSame('local runtime', file_get_contents($root.'/storage/app/runtime.txt'));
         $this->assertSame('linked upload', file_get_contents($root.'/public/storage/upload.txt'));
@@ -324,6 +530,8 @@ class SystemUpdateInstallTest extends TestCase
 
         $this->bindInstallerForRoot($root);
         $admin = $this->actingAsAdmin();
+        $deferredTasks = [];
+        $this->captureDeferredTasks($deferredTasks);
 
         $response = $this->postJson('/api/system-updates/install', [
             'tag' => 'v1.2.4',
@@ -332,7 +540,14 @@ class SystemUpdateInstallTest extends TestCase
             'confirmed' => true,
         ]);
 
-        $response->assertAccepted();
+        $response->assertAccepted()
+            ->assertJsonPath('data.status', 'running')
+            ->assertJsonPath('data.step', 'installing');
+        $this->assertSame('old service', file_get_contents($root.'/app/Services/Existing.php'));
+        $this->assertCount(1, $deferredTasks);
+
+        $deferredTasks[0]();
+
         Http::assertSent(function (\Illuminate\Http\Client\Request $request) use ($trustedDownloadUrl): bool {
             return $request->url() === $trustedDownloadUrl;
         });
@@ -405,6 +620,8 @@ class SystemUpdateInstallTest extends TestCase
 
         $this->bindInstallerForRootUsingRealCommands($root);
         $this->actingAsAdmin();
+        $deferredTasks = [];
+        $this->captureDeferredTasks($deferredTasks);
 
         Artisan::shouldReceive('call')->once()->with('down')->andReturn(0);
         Artisan::shouldReceive('call')->once()->with('migrate --force')->andReturn(0);
@@ -416,7 +633,11 @@ class SystemUpdateInstallTest extends TestCase
             'tag' => 'v1.2.4',
             'sha256' => hash_file('sha256', $packagePath),
             'confirmed' => true,
-        ])->assertAccepted();
+        ])->assertAccepted()
+            ->assertJsonPath('data.status', 'running');
+
+        $this->assertCount(1, $deferredTasks);
+        $deferredTasks[0]();
 
         $this->assertFileDoesNotExist($fakePhpLogPath);
     }
@@ -479,6 +700,8 @@ class SystemUpdateInstallTest extends TestCase
             }
         });
         $admin = $this->actingAsAdmin();
+        $deferredTasks = [];
+        $this->captureDeferredTasks($deferredTasks);
 
         $response = $this->postJson('/api/system-updates/install', [
             'tag' => 'v1.2.4',
@@ -486,7 +709,13 @@ class SystemUpdateInstallTest extends TestCase
             'confirmed' => true,
         ]);
 
-        $response->assertStatus(500);
+        $response->assertAccepted()
+            ->assertJsonPath('data.status', 'running')
+            ->assertJsonPath('data.step', 'installing');
+        $this->assertCount(1, $deferredTasks);
+
+        $deferredTasks[0]();
+
         $this->assertSame('old service', file_get_contents($root.'/app/Services/Existing.php'));
         $this->assertSame('old public index', file_get_contents($root.'/public/index.php'));
         $this->assertSame('local runtime', file_get_contents($root.'/storage/app/runtime.txt'));
@@ -516,6 +745,24 @@ class SystemUpdateInstallTest extends TestCase
             $app->make(ReleasePackageVerifier::class),
             $root,
         ));
+    }
+
+    /**
+     * @param  list<callable>  $deferredTasks
+     */
+    private function captureDeferredTasks(array &$deferredTasks): void
+    {
+        $deferredTasks = [];
+
+        $this->mock(SystemUpdateDeferredRunner::class, function ($mock) use (&$deferredTasks): void {
+            $mock->shouldReceive('afterResponse')
+                ->once()
+                ->with(Mockery::on(function (callable $task) use (&$deferredTasks): bool {
+                    $deferredTasks[] = $task;
+
+                    return true;
+                }));
+        });
     }
 
     private function actingAsAdmin(): User
