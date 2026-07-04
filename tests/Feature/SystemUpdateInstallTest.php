@@ -63,7 +63,7 @@ class SystemUpdateInstallTest extends TestCase
                 'version' => '1.2.4',
                 'sha256' => hash_file('sha256', $packagePath),
             ], JSON_THROW_ON_ERROR)),
-            'example.test/pkg.tar.gz.sha256' => Http::response(hash_file('sha256', $packagePath).'  gx-om-backend-v1.2.4.tar.gz' . PHP_EOL),
+            'example.test/pkg.tar.gz.sha256' => Http::response(hash_file('sha256', $packagePath).'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
             'example.test/gx-om-backend-v1.2.4.tar.gz' => Http::response(file_get_contents($packagePath)),
         ]);
 
@@ -139,7 +139,7 @@ class SystemUpdateInstallTest extends TestCase
                 'version' => '1.2.4',
                 'sha256' => hash_file('sha256', $trustedPackagePath),
             ], JSON_THROW_ON_ERROR)),
-            'example.test/pkg.tar.gz.sha256' => Http::response(hash_file('sha256', $trustedPackagePath).'  gx-om-backend-v1.2.4.tar.gz' . PHP_EOL),
+            'example.test/pkg.tar.gz.sha256' => Http::response(hash_file('sha256', $trustedPackagePath).'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
             $trustedDownloadUrl => Http::response(file_get_contents($trustedPackagePath)),
             'evil.test/*' => Http::response('this should not be fetched'),
         ]);
@@ -215,7 +215,7 @@ class SystemUpdateInstallTest extends TestCase
                 'version' => '1.2.4',
                 'sha256' => hash_file('sha256', $packagePath),
             ], JSON_THROW_ON_ERROR)),
-            'example.test/pkg.tar.gz.sha256' => Http::response(hash_file('sha256', $packagePath).'  gx-om-backend-v1.2.4.tar.gz' . PHP_EOL),
+            'example.test/pkg.tar.gz.sha256' => Http::response(hash_file('sha256', $packagePath).'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
             'example.test/gx-om-backend-v1.2.4.tar.gz' => Http::response(file_get_contents($packagePath)),
         ]);
 

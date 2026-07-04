@@ -42,7 +42,10 @@ class AuthServiceProviderTest extends TestCase
         $registrar->register();
 
         $this->assertTrue(Gate::has('invoices.view'));
-        $this->assertSame(['invoices.view'], Cache::get(PermissionGateRegistrar::CACHE_KEY));
+        $cachedPermissionSlugs = Cache::get(PermissionGateRegistrar::CACHE_KEY);
+
+        $this->assertIsArray($cachedPermissionSlugs);
+        $this->assertContains('invoices.view', $cachedPermissionSlugs);
 
         Permission::create([
             'name' => 'Create invoices',

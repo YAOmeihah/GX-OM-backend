@@ -205,7 +205,11 @@ class SystemUpdateEnvironmentPreflight
         $link = $this->join($root, 'storage/app/system_updates/.preflight-link');
 
         try {
-            $this->ensureWritableDirectory(dirname($target));
+            $targetDirectory = dirname($target);
+            if (! is_dir($targetDirectory)) {
+                mkdir($targetDirectory, 0777, true);
+            }
+
             file_put_contents($target, 'ok');
 
             if (is_link($link) || file_exists($link)) {

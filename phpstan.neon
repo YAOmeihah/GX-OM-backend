@@ -28,21 +28,6 @@ parameters:
             message: "#^Relation 'attachments' is not found in App\\\\Models\\\\Payment model\\.$#"
             path: app/Http/Controllers/PaymentController.php
         -
-            message: "#^Relation 'discounts' is not found in App\\\\Models\\\\Invoice model\\.$#"
-            path: app/Http/Controllers/CustomerController.php
-        -
-            message: "#^Relation 'discounts' is not found in App\\\\Models\\\\Invoice model\\.$#"
-            path: app/Http/Controllers/InvoiceController.php
-        -
-            message: "#^Relation 'discounts' is not found in App\\\\Models\\\\Invoice model\\.$#"
-            path: app/Http/Controllers/PublicInvoiceController.php
-        -
-            message: "#^Relation 'discounts' is not found in App\\\\Models\\\\Invoice model\\.$#"
-            path: app/Services/AutoAllocationService.php
-        -
-            message: "#^Relation 'discounts' is not found in App\\\\Models\\\\Invoice model\\.$#"
-            path: app/Services/PaymentDiscountService.php
-        -
             message: "#^Relation 'discounts' is not found in App\\\\Models\\\\Payment model\\.$#"
             path: app/Http/Controllers/PaymentController.php
         -

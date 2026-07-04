@@ -49,7 +49,7 @@ class GitHubReleaseClientTest extends TestCase
                     'sha256' => str_repeat('a', 64),
                 ], JSON_THROW_ON_ERROR));
             },
-            'api.github.com/repos/acme/app/releases/assets/3' => Http::response(str_repeat('a', 64).'  gx-om-backend-v1.2.4.tar.gz' . PHP_EOL),
+            'api.github.com/repos/acme/app/releases/assets/3' => Http::response(str_repeat('a', 64).'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
         ]);
 
         $release = (new GitHubReleaseClient)->latestRelease();
@@ -89,7 +89,7 @@ class GitHubReleaseClientTest extends TestCase
                 'version' => '1.2.4',
                 'sha256' => str_repeat('a', 64),
             ], JSON_THROW_ON_ERROR)),
-            'api.github.com/repos/acme/app/releases/assets/3' => Http::response(str_repeat('a', 64).'  gx-om-backend-v1.2.4.tar.gz' . PHP_EOL),
+            'api.github.com/repos/acme/app/releases/assets/3' => Http::response(str_repeat('a', 64).'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
             'github.com/*' => Http::response(['error' => 'Not Found'], 404),
         ]);
 
@@ -129,7 +129,7 @@ class GitHubReleaseClientTest extends TestCase
                 'version' => '1.2.4',
                 'sha256' => str_repeat('a', 64),
             ], JSON_THROW_ON_ERROR)),
-            'example.test/gx-om-backend-v1.2.4.tar.gz.sha256' => Http::response(str_repeat('a', 64).'  gx-om-backend-v1.2.4.tar.gz' . PHP_EOL),
+            'example.test/gx-om-backend-v1.2.4.tar.gz.sha256' => Http::response(str_repeat('a', 64).'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
         ]);
 
         (new GitHubReleaseClient)->latestRelease();
@@ -157,7 +157,7 @@ class GitHubReleaseClientTest extends TestCase
                 'version' => '1.2.4',
                 'sha256' => str_repeat('a', 64),
             ], JSON_THROW_ON_ERROR)),
-            'example.test/gx-om-backend-v1.2.4.tar.gz.sha256' => Http::response(str_repeat('b', 64).'  gx-om-backend-v1.2.4.tar.gz' . PHP_EOL),
+            'example.test/gx-om-backend-v1.2.4.tar.gz.sha256' => Http::response(str_repeat('b', 64).'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
         ]);
 
         $this->expectException(RuntimeException::class);

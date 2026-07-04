@@ -46,13 +46,13 @@ $runtimeEntries = [
 ];
 
 foreach ($runtimeEntries as $entry) {
-    $sourcePath = $sourceDir . DIRECTORY_SEPARATOR . $entry;
+    $sourcePath = $sourceDir.DIRECTORY_SEPARATOR.$entry;
     if (! file_exists($sourcePath)) {
         fwrite(STDERR, "Missing runtime entry: {$entry}\n");
         exit(1);
     }
 
-    $targetPath = $outputDir . DIRECTORY_SEPARATOR . $entry;
+    $targetPath = $outputDir.DIRECTORY_SEPARATOR.$entry;
     is_dir($sourcePath) ? copyDirectory($sourcePath, $targetPath) : copyFile($sourcePath, $targetPath);
 }
 
@@ -67,16 +67,16 @@ $storageDirectories = [
 ];
 
 foreach ($storageDirectories as $directory) {
-    $targetPath = $outputDir . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $directory);
+    $targetPath = $outputDir.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $directory);
     if (! is_dir($targetPath) && ! mkdir($targetPath, 0777, true) && ! is_dir($targetPath)) {
         fwrite(STDERR, "Failed to create storage directory: {$directory}\n");
         exit(1);
     }
 
-    file_put_contents($targetPath . DIRECTORY_SEPARATOR . '.gitignore', "*\n!.gitignore\n");
+    file_put_contents($targetPath.DIRECTORY_SEPARATOR.'.gitignore', "*\n!.gitignore\n");
 }
 
-$publicStorageLink = $outputDir . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'storage';
+$publicStorageLink = $outputDir.DIRECTORY_SEPARATOR.'public'.DIRECTORY_SEPARATOR.'storage';
 if (is_link($publicStorageLink) || file_exists($publicStorageLink)) {
     unlink($publicStorageLink);
 }
@@ -91,7 +91,7 @@ if (! mkdir($publicStorageLink, 0777, true) && ! is_dir($publicStorageLink)) {
     exit(1);
 }
 
-file_put_contents($publicStorageLink . DIRECTORY_SEPARATOR . '.gitignore', "*\n!.gitignore\n");
+file_put_contents($publicStorageLink.DIRECTORY_SEPARATOR.'.gitignore', "*\n!.gitignore\n");
 
 fwrite(STDOUT, "Release directory prepared: {$outputDir}\n");
 
@@ -108,7 +108,7 @@ function copyDirectory(string $source, string $target): void
     );
 
     foreach ($items as $item) {
-        $targetPath = $target . DIRECTORY_SEPARATOR . $items->getSubPathName();
+        $targetPath = $target.DIRECTORY_SEPARATOR.$items->getSubPathName();
         if ($item->isDir()) {
             if (! is_dir($targetPath) && ! mkdir($targetPath, 0777, true) && ! is_dir($targetPath)) {
                 fwrite(STDERR, "Failed to create directory: {$targetPath}\n");

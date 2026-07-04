@@ -76,7 +76,7 @@ class SystemUpdateApiTest extends TestCase
                     'version' => '1.2.4',
                     'sha256' => str_repeat('c', 64),
                 ], JSON_THROW_ON_ERROR)),
-                'example.test/gx-om-backend-v1.2.4.tar.gz.sha256' => \Illuminate\Support\Facades\Http::response(str_repeat('c', 64).'  gx-om-backend-v1.2.4.tar.gz' . PHP_EOL),
+                'example.test/gx-om-backend-v1.2.4.tar.gz.sha256' => \Illuminate\Support\Facades\Http::response(str_repeat('c', 64).'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
             ]);
 
             $this->mock(\App\Services\SystemUpdate\InPlaceReleaseInstaller::class, function ($mock) use ($run): void {

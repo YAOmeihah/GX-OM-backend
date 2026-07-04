@@ -34,7 +34,7 @@ class SystemUpdateReleaseCheckTest extends TestCase
                 'version' => '1.2.4',
                 'sha256' => str_repeat('c', 64),
             ], JSON_THROW_ON_ERROR)),
-            'example.test/pkg.tar.gz.sha256' => Http::response(str_repeat('c', 64).'  gx-om-backend-v1.2.4.tar.gz' . PHP_EOL),
+            'example.test/pkg.tar.gz.sha256' => Http::response(str_repeat('c', 64).'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
             'example.test/pkg.tar.gz' => Http::response('placeholder package'),
         ]);
 

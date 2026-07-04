@@ -10,7 +10,7 @@ $optionNames = [
 ];
 [$options, $manifestPath] = parseArguments($argv, $optionNames);
 
-if (!is_file($manifestPath)) {
+if (! is_file($manifestPath)) {
     fwrite(STDERR, "Manifest not found: {$manifestPath}\n");
     exit(1);
 }
@@ -140,6 +140,7 @@ function parseArguments(array $argv, array $optionNames): array
         $argument = $argv[$i];
         if (! str_starts_with($argument, '--')) {
             $manifestPaths[] = $argument;
+
             continue;
         }
 
@@ -172,11 +173,11 @@ function parseArguments(array $argv, array $optionNames): array
     }
 
     if (count($manifestPaths) > 1) {
-        fwrite(STDERR, 'Multiple manifest paths provided: ' . implode(', ', $manifestPaths) . "\n");
+        fwrite(STDERR, 'Multiple manifest paths provided: '.implode(', ', $manifestPaths)."\n");
         exit(1);
     }
 
-    return [$options, $manifestPaths[0] ?? __DIR__ . '/../public/app_update/update.json'];
+    return [$options, $manifestPaths[0] ?? __DIR__.'/../public/app_update/update.json'];
 }
 
 function isLowercaseSha256(string $value): bool

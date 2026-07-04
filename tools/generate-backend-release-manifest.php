@@ -53,7 +53,7 @@ if ($sha256 !== '') {
     $manifest['sha256'] = $sha256;
 }
 
-$output = (string) ($options['output'] ?? __DIR__ . '/../release-manifest.json');
+$output = (string) ($options['output'] ?? __DIR__.'/../release-manifest.json');
 $outputDir = dirname($output);
 if (! is_dir($outputDir)) {
     fwrite(STDERR, "Output directory not found: {$outputDir}\n");
@@ -66,5 +66,5 @@ if ($encoded === false) {
     exit(1);
 }
 
-file_put_contents($output, $encoded . "\n");
+file_put_contents($output, $encoded."\n");
 fwrite(STDOUT, "Manifest written: {$output}\n");

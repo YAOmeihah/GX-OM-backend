@@ -171,7 +171,7 @@ class Invoice extends Model
     /**
      * 获取账单的优惠减免记录
      */
-    public function discounts()
+    public function discounts(): HasMany
     {
         return $this->hasMany(\App\Models\PaymentDiscount::class);
     }
