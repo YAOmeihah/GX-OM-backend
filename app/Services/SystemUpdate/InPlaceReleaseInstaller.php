@@ -50,48 +50,30 @@ class InPlaceReleaseInstaller
     {
         $this->verifier->assertValidTag($tag);
 
-        $root = $this->root();
         $workspace = $this->workspace($tag);
         $packagePath = $workspace['downloads'].DIRECTORY_SEPARATOR."gx-om-backend-{$tag}.tar.gz";
-        $stagingPath = $workspace['staging'].DIRECTORY_SEPARATOR.$tag.'-'.uniqid('', true);
-        $backupPath = $workspace['backups'].DIRECTORY_SEPARATOR.$tag.'-'.date('YmdHis').'-'.uniqid('', true);
-
-        $this->ensureDirectory($workspace['downloads']);
-        $this->ensureDirectory($workspace['staging']);
-        $this->ensureDirectory($workspace['backups']);
-        $this->ensureDirectory($workspace['runs']);
+        $this->ensureWorkspaceDirectories($workspace);
 
         $this->downloadPackage($downloadUrl, $packagePath);
-        $this->verifier->assertSha256($packagePath, $sha256);
-        $this->verifier->assertSafeArchive($packagePath);
 
-        try {
-            $this->extractArchive($packagePath, $stagingPath);
-            $this->backupManagedEntries($root, $backupPath);
-            $this->runArtisanCommand('down', $root);
-            $this->replaceManagedEntries($root, $stagingPath);
-            $this->runArtisanCommand('migrate --force', $root);
-            $this->runArtisanCommand('optimize:clear', $root);
-            $this->runArtisanCommand('storage:link --force', $root);
-            $this->runArtisanCommand('up', $root);
-            $this->pruneBackups($workspace['backups']);
-        } catch (Throwable $throwable) {
-            $this->restoreBackup($root, $backupPath);
-            $this->tryBringApplicationUp($root);
+        return $this->installPreparedPackage($tag, $packagePath, $sha256, $workspace);
+    }
 
-            throw $throwable;
-        } finally {
-            if (is_dir($stagingPath)) {
-                $this->files->deleteDirectory($stagingPath);
-            }
+    /**
+     * @return array<string, mixed>
+     */
+    public function installFromPackage(string $tag, string $packagePath, string $sha256): array
+    {
+        $this->verifier->assertValidTag($tag);
+
+        if (! is_file($packagePath)) {
+            throw new RuntimeException('Release package path is missing.');
         }
 
-        return [
-            'tag' => $tag,
-            'package_path' => $packagePath,
-            'backup_path' => $backupPath,
-            'sha256' => strtolower($sha256),
-        ];
+        $workspace = $this->workspace($tag);
+        $this->ensureWorkspaceDirectories($workspace);
+
+        return $this->installPreparedPackage($tag, $packagePath, $sha256, $workspace);
     }
 
     /**
@@ -131,6 +113,59 @@ class InPlaceReleaseInstaller
             'backups' => $base.DIRECTORY_SEPARATOR.'backups',
             'runs' => $base.DIRECTORY_SEPARATOR.'runs'.DIRECTORY_SEPARATOR.$tag.'-'.date('YmdHis'),
         ];
+    }
+
+    /**
+     * @param  array{downloads: string, staging: string, backups: string, runs: string}  $workspace
+     * @return array<string, mixed>
+     */
+    private function installPreparedPackage(string $tag, string $packagePath, string $sha256, array $workspace): array
+    {
+        $root = $this->root();
+        $stagingPath = $workspace['staging'].DIRECTORY_SEPARATOR.$tag.'-'.uniqid('', true);
+        $backupPath = $workspace['backups'].DIRECTORY_SEPARATOR.$tag.'-'.date('YmdHis').'-'.uniqid('', true);
+
+        $this->verifier->assertSha256($packagePath, $sha256);
+        $this->verifier->assertSafeArchive($packagePath);
+
+        try {
+            $this->extractArchive($packagePath, $stagingPath);
+            $this->backupManagedEntries($root, $backupPath);
+            $this->runArtisanCommand('down', $root);
+            $this->replaceManagedEntries($root, $stagingPath);
+            $this->runArtisanCommand('migrate --force', $root);
+            $this->runArtisanCommand('optimize:clear', $root);
+            $this->runArtisanCommand('storage:link --force', $root);
+            $this->runArtisanCommand('up', $root);
+            $this->pruneBackups($workspace['backups']);
+        } catch (Throwable $throwable) {
+            $this->restoreBackup($root, $backupPath);
+            $this->tryBringApplicationUp($root);
+
+            throw $throwable;
+        } finally {
+            if (is_dir($stagingPath)) {
+                $this->files->deleteDirectory($stagingPath);
+            }
+        }
+
+        return [
+            'tag' => $tag,
+            'package_path' => $packagePath,
+            'backup_path' => $backupPath,
+            'sha256' => strtolower($sha256),
+        ];
+    }
+
+    /**
+     * @param  array{downloads: string, staging: string, backups: string, runs: string}  $workspace
+     */
+    private function ensureWorkspaceDirectories(array $workspace): void
+    {
+        $this->ensureDirectory($workspace['downloads']);
+        $this->ensureDirectory($workspace['staging']);
+        $this->ensureDirectory($workspace['backups']);
+        $this->ensureDirectory($workspace['runs']);
     }
 
     private function downloadPackage(string $downloadUrl, string $packagePath): void

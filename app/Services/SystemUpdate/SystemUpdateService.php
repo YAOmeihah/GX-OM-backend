@@ -3,6 +3,7 @@
 namespace App\Services\SystemUpdate;
 
 use App\Models\SystemUpdateRun;
+use Illuminate\Http\UploadedFile;
 use Symfony\Component\Process\Process;
 use Throwable;
 
@@ -12,6 +13,7 @@ class SystemUpdateService
         private readonly GitHubReleaseClient $githubReleaseClient,
         private readonly InPlaceReleaseInstaller $installer,
         private readonly SystemUpdateEnvironmentPreflight $environmentPreflight,
+        private readonly SystemUpdateProcessStarter $processStarter,
     ) {}
 
     /**
@@ -116,6 +118,82 @@ class SystemUpdateService
         }
     }
 
+    /**
+     * @param  array{tag: string, sha256: string}  $payload
+     * @return array<string, mixed>
+     */
+    public function queueUploadedPackage(array $payload, ?UploadedFile $package): array
+    {
+        if (! $package instanceof UploadedFile) {
+            throw new \UnexpectedValueException('Release package file is missing.');
+        }
+
+        $this->environmentPreflight->ensureReady();
+
+        $tag = $payload['tag'];
+        $latest = $this->githubReleaseClient->latestRelease();
+
+        if (($latest['tag'] ?? null) !== $tag) {
+            throw new \UnexpectedValueException('Requested release tag does not match the latest release.');
+        }
+
+        $expectedSha256 = strtolower((string) ($latest['package']['sha256'] ?? ''));
+        $providedSha256 = strtolower($payload['sha256']);
+
+        if ($expectedSha256 === '' || $expectedSha256 !== $providedSha256) {
+            throw new \UnexpectedValueException('Release package SHA256 does not match the latest release metadata.');
+        }
+
+        $expectedName = (string) ($latest['package']['name'] ?? "gx-om-backend-{$tag}.tar.gz");
+        $originalName = $package->getClientOriginalName();
+
+        if ($originalName !== $expectedName) {
+            throw new \UnexpectedValueException("Uploaded release package filename must be {$expectedName}.");
+        }
+
+        $uploadedPath = $package->getRealPath();
+
+        if (! is_string($uploadedPath) || ! is_file($uploadedPath)) {
+            throw new \UnexpectedValueException('Uploaded release package file is not readable.');
+        }
+
+        $actualSha256 = strtolower(hash_file('sha256', $uploadedPath));
+
+        if ($actualSha256 !== $providedSha256) {
+            throw new \UnexpectedValueException('Uploaded release package SHA256 mismatch.');
+        }
+
+        $run = SystemUpdateRun::create([
+            'actor_user_id' => auth()->id(),
+            'tag' => $tag,
+            'version' => ltrim($tag, 'v'),
+            'status' => 'pending',
+            'step' => 'uploaded',
+            'package_sha256' => $providedSha256,
+            'metadata' => [
+                'source' => 'upload',
+                'package_name' => $expectedName,
+                'uploaded_size' => $package->getSize(),
+            ],
+            'started_at' => now(),
+            'log_lines' => ['Uploaded release package.', 'Queued uploaded release package install.'],
+        ]);
+
+        $destination = $this->uploadedPackagePath($tag, $run->id, $expectedName);
+        $this->ensureDirectory(dirname($destination));
+        $package->move(dirname($destination), basename($destination));
+
+        $run->update(['package_path' => $destination]);
+        $run->refresh();
+
+        $this->processStarter->start($run);
+
+        return [
+            'run_id' => $run->id,
+            'status' => $run->status,
+        ];
+    }
+
     private function hasUpdate(string $currentVersion, string $latestVersion): bool
     {
         if ($latestVersion === '' || $latestVersion === 'unknown') {
@@ -127,6 +205,22 @@ class SystemUpdateService
         }
 
         return version_compare(ltrim($latestVersion, 'v'), ltrim($currentVersion, 'v'), '>');
+    }
+
+    private function uploadedPackagePath(string $tag, int $runId, string $packageName): string
+    {
+        $root = rtrim((string) config('system_update.deployment_root', base_path()), DIRECTORY_SEPARATOR.'/\\');
+
+        return $root.DIRECTORY_SEPARATOR.'storage'.DIRECTORY_SEPARATOR.'app'.DIRECTORY_SEPARATOR.'system_updates'
+            .DIRECTORY_SEPARATOR.'uploads'.DIRECTORY_SEPARATOR.$tag
+            .DIRECTORY_SEPARATOR.'run-'.$runId.'-'.$packageName;
+    }
+
+    private function ensureDirectory(string $path): void
+    {
+        if (! is_dir($path)) {
+            mkdir($path, 0777, true);
+        }
     }
 
     /**

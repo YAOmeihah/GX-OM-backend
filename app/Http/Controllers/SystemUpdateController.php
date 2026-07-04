@@ -9,6 +9,7 @@ use App\Services\SystemUpdate\SystemUpdateEnvironmentNotReadyException;
 use App\Services\SystemUpdate\SystemUpdateEnvironmentPreflight;
 use App\Services\SystemUpdate\SystemUpdateService;
 use Illuminate\Http\Request;
+use UnexpectedValueException;
 
 class SystemUpdateController extends ApiController
 {
@@ -45,6 +46,35 @@ class SystemUpdateController extends ApiController
             return $this->errorResponse('System update environment is not ready.', 412, [
                 'preflight' => $exception->report(),
             ]);
+        }
+    }
+
+    public function installUpload(Request $request, SystemUpdateService $systemUpdateService): \Illuminate\Http\JsonResponse
+    {
+        $payload = $request->validate([
+            'tag' => ['required', 'string', 'regex:/^v\d+\.\d+\.\d+$/'],
+            'sha256' => ['required', 'string', 'regex:/^[A-Fa-f0-9]{64}$/'],
+            'confirmed' => ['accepted'],
+            'package' => ['required', 'file'],
+        ]);
+        $package = $request->file('package');
+
+        if (is_array($package)) {
+            return $this->errorResponse('System update package file is invalid.', 422);
+        }
+
+        try {
+            return $this->successResponse(
+                $systemUpdateService->queueUploadedPackage($payload, $package),
+                'System update package uploaded.',
+                202
+            );
+        } catch (SystemUpdateEnvironmentNotReadyException $exception) {
+            return $this->errorResponse('System update environment is not ready.', 412, [
+                'preflight' => $exception->report(),
+            ]);
+        } catch (UnexpectedValueException $exception) {
+            return $this->errorResponse($exception->getMessage(), 422);
         }
     }
 

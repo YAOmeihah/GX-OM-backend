@@ -26,6 +26,11 @@ class SystemUpdateApiTest extends TestCase
             'sha256' => str_repeat('a', 64),
             'confirmed' => true,
         ])->assertForbidden();
+        $this->postJson('/api/system-updates/install-upload', [
+            'tag' => 'v1.2.4',
+            'sha256' => str_repeat('a', 64),
+            'confirmed' => true,
+        ])->assertForbidden();
         $this->getJson('/api/system-updates/runs')->assertForbidden();
         $this->postJson('/api/system-updates/rollback', [
             'run_id' => 1,
