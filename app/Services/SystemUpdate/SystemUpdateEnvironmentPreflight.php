@@ -189,6 +189,19 @@ class SystemUpdateEnvironmentPreflight
      */
     private function symlinkSupported(): array
     {
+        $root = $this->deploymentRoot();
+
+        if ($this->publicStorageLinked($root)) {
+            return $this->result(
+                id: 'symlink_supported',
+                label: '符号链接可用',
+                passed: true,
+                detailWhenPass: 'public/storage 已连接到 storage/app/public。',
+                detailWhenFail: '当前环境无法创建符号链接，storage:link 可能失败。',
+                remediation: '确认系统和 PHP 进程允许创建符号链接。',
+            );
+        }
+
         if (PHP_OS_FAMILY === 'Windows') {
             return $this->result(
                 id: 'symlink_supported',
@@ -200,7 +213,6 @@ class SystemUpdateEnvironmentPreflight
             );
         }
 
-        $root = $this->deploymentRoot();
         $target = $this->join($root, 'storage/app/system_updates/.preflight-link-target');
         $link = $this->join($root, 'storage/app/system_updates/.preflight-link');
 
@@ -314,6 +326,14 @@ class SystemUpdateEnvironmentPreflight
     private function deploymentRoot(): string
     {
         return rtrim((string) config('system_update.deployment_root', base_path()), DIRECTORY_SEPARATOR.'/\\');
+    }
+
+    private function publicStorageLinked(string $root): bool
+    {
+        $link = realpath($this->join($root, 'public/storage'));
+        $target = realpath($this->join($root, 'storage/app/public'));
+
+        return $link !== false && $target !== false && $link === $target;
     }
 
     private function join(string $root, string $path): string

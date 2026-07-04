@@ -44,6 +44,28 @@ class SystemUpdateEnvironmentPreflightTest extends TestCase
             ]);
     }
 
+    public function test_preflight_accepts_an_existing_public_storage_link_when_the_probe_path_is_blocked(): void
+    {
+        $root = $this->prepareDeploymentRoot('preflight-existing-storage-link');
+        file_put_contents($root.'/artisan', '<?php');
+        mkdir($root.'/public', 0777, true);
+        mkdir($root.'/storage/app/public', 0777, true);
+        mkdir($root.'/storage/app/system_updates/.preflight-link', 0777, true);
+
+        $this->createStorageLink($root.'/storage/app/public', $root.'/public/storage');
+
+        config()->set('system_update.deployment_root', $root);
+
+        $this->actingAsAdminWithPermission();
+
+        $this->getJson('/api/system-updates/preflight')
+            ->assertOk()
+            ->assertJsonPath('data.passed', true)
+            ->assertJsonPath('data.checks.7.id', 'symlink_supported')
+            ->assertJsonPath('data.checks.7.passed', true)
+            ->assertJsonPath('data.checks.7.detail', 'public/storage 已连接到 storage/app/public。');
+    }
+
     public function test_install_is_refused_when_the_environment_preflight_fails(): void
     {
         $root = $this->prepareDeploymentRoot('preflight-fail', false);
@@ -103,6 +125,23 @@ class SystemUpdateEnvironmentPreflightTest extends TestCase
         }
 
         return $root;
+    }
+
+    private function createStorageLink(string $target, string $link): void
+    {
+        if (@symlink($target, $link)) {
+            return;
+        }
+
+        if (DIRECTORY_SEPARATOR === '\\') {
+            exec('cmd /C mklink /J '.escapeshellarg($link).' '.escapeshellarg($target), $output, $exitCode);
+
+            if ($exitCode === 0) {
+                return;
+            }
+        }
+
+        $this->fail('Unable to create a storage link fixture.');
     }
 
     private function removeDirectory(string $directory): void

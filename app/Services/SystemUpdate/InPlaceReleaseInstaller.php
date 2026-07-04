@@ -72,7 +72,7 @@ class InPlaceReleaseInstaller
             $this->replaceManagedEntries($root, $stagingPath);
             $this->runArtisanCommand('migrate --force', $root);
             $this->runArtisanCommand('optimize:clear', $root);
-            $this->runArtisanCommand('storage:link', $root);
+            $this->runArtisanCommand('storage:link --force', $root);
             $this->runArtisanCommand('up', $root);
             $this->pruneBackups($workspace['backups']);
         } catch (Throwable $throwable) {
@@ -260,7 +260,8 @@ class InPlaceReleaseInstaller
             return;
         }
 
-        $binary = PHP_BINARY;
+        $configuredBinary = trim((string) config('system_update.php_binary', ''));
+        $binary = $configuredBinary !== '' ? $configuredBinary : PHP_BINARY;
         $artisan = $root.DIRECTORY_SEPARATOR.'artisan';
         $fullCommand = escapeshellarg($binary).' '.escapeshellarg($artisan).' '.$command.' 2>&1';
         exec($fullCommand, $output, $exitCode);

@@ -22,6 +22,7 @@ class SystemUpdateInstallTest extends TestCase
         Storage::fake();
         $root = $this->fixtureDeploymentRoot('preserve');
         $packagePath = $this->fixturePath('preserve-release.tar.gz');
+        $commands = [];
 
         $this->writeDeploymentRoot($root, [
             '.env' => 'APP_KEY=existing',
@@ -67,7 +68,9 @@ class SystemUpdateInstallTest extends TestCase
             'example.test/gx-om-backend-v1.2.4.tar.gz' => Http::response(file_get_contents($packagePath)),
         ]);
 
-        $this->bindInstallerForRoot($root);
+        $this->bindInstallerForRoot($root, function (string $command) use (&$commands): void {
+            $commands[] = $command;
+        });
         $admin = $this->actingAsAdmin();
 
         $response = $this->postJson('/api/system-updates/install', [
@@ -83,6 +86,13 @@ class SystemUpdateInstallTest extends TestCase
         $this->assertSame('new service', file_get_contents($root.'/app/Services/Existing.php'));
         $this->assertSame('new public index', file_get_contents($root.'/public/index.php'));
         $this->assertFileDoesNotExist($root.'/public/old.txt');
+        $this->assertSame([
+            'down',
+            'migrate --force',
+            'optimize:clear',
+            'storage:link --force',
+            'up',
+        ], $commands);
         $this->assertDatabaseHas('system_update_runs', [
             'actor_user_id' => $admin->id,
             'tag' => 'v1.2.4',
@@ -167,6 +177,75 @@ class SystemUpdateInstallTest extends TestCase
             'status' => 'completed',
             'package_sha256' => hash_file('sha256', $trustedPackagePath),
         ]);
+    }
+
+    public function test_install_uses_configured_php_binary_for_artisan_commands(): void
+    {
+        Storage::fake();
+        $root = $this->fixtureDeploymentRoot('configured-php-binary');
+        $packagePath = $this->fixturePath('configured-php-binary-release.tar.gz');
+        $fakePhpLogPath = $this->fixturePath('configured-php-binary.log');
+        $fakePhpPath = $this->writeFakePhpBinary($fakePhpLogPath);
+
+        config()->set('system_update.php_binary', $fakePhpPath);
+
+        $this->writeDeploymentRoot($root, [
+            '.env' => 'APP_KEY=existing',
+            'storage/app/runtime.txt' => 'local runtime',
+            'public/storage/upload.txt' => 'linked upload',
+            'artisan' => "<?php fwrite(STDERR, 'real php binary should not be used'); exit(42);\n",
+            'release.json' => '{"version":"1.2.3"}',
+        ]);
+
+        $this->writeGzipTar($packagePath, [
+            '.env.example' => 'APP_KEY=',
+            'app/Services/Existing.php' => 'new service',
+            'bootstrap/app.php' => '<?php',
+            'config/app.php' => '<?php return [];',
+            'database/migrations/example.php' => '<?php',
+            'public/index.php' => 'new public index',
+            'resources/views/.gitkeep' => '',
+            'routes/api.php' => '<?php',
+            'vendor/autoload.php' => '<?php',
+            'artisan' => '<?php',
+            'composer.lock' => '{}',
+            'release.json' => '{"version":"1.2.4","tag":"v1.2.4"}',
+        ]);
+
+        Http::fake([
+            'api.github.com/repos/*/releases/latest' => Http::response([
+                'tag_name' => 'v1.2.4',
+                'draft' => false,
+                'prerelease' => false,
+                'assets' => [
+                    ['name' => 'release-manifest.json', 'browser_download_url' => 'https://example.test/release-manifest.json'],
+                    ['name' => 'gx-om-backend-v1.2.4.tar.gz', 'browser_download_url' => 'https://example.test/gx-om-backend-v1.2.4.tar.gz'],
+                    ['name' => 'gx-om-backend-v1.2.4.tar.gz.sha256', 'browser_download_url' => 'https://example.test/pkg.tar.gz.sha256'],
+                ],
+            ]),
+            'example.test/release-manifest.json' => Http::response(json_encode([
+                'version' => '1.2.4',
+                'sha256' => hash_file('sha256', $packagePath),
+            ], JSON_THROW_ON_ERROR)),
+            'example.test/pkg.tar.gz.sha256' => Http::response(hash_file('sha256', $packagePath).'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
+            'example.test/gx-om-backend-v1.2.4.tar.gz' => Http::response(file_get_contents($packagePath)),
+        ]);
+
+        $this->bindInstallerForRootUsingRealCommands($root);
+        $this->actingAsAdmin();
+
+        $this->postJson('/api/system-updates/install', [
+            'tag' => 'v1.2.4',
+            'sha256' => hash_file('sha256', $packagePath),
+            'confirmed' => true,
+        ])->assertAccepted();
+
+        $commandLog = file_get_contents($fakePhpLogPath);
+        $this->assertMatchesRegularExpression('/artisan"?\s+down/', $commandLog);
+        $this->assertMatchesRegularExpression('/artisan"?\s+migrate --force/', $commandLog);
+        $this->assertMatchesRegularExpression('/artisan"?\s+optimize:clear/', $commandLog);
+        $this->assertMatchesRegularExpression('/artisan"?\s+storage:link --force/', $commandLog);
+        $this->assertMatchesRegularExpression('/artisan"?\s+up/', $commandLog);
     }
 
     public function test_failed_install_restores_backup_and_brings_application_up(): void
@@ -258,6 +337,14 @@ class SystemUpdateInstallTest extends TestCase
         ));
     }
 
+    private function bindInstallerForRootUsingRealCommands(string $root): void
+    {
+        $this->app->bind(InPlaceReleaseInstaller::class, fn ($app): InPlaceReleaseInstaller => new InPlaceReleaseInstaller(
+            $app->make(ReleasePackageVerifier::class),
+            $root,
+        ));
+    }
+
     private function actingAsAdmin(): User
     {
         $adminRole = Role::firstOrCreate(['slug' => 'admin'], [
@@ -295,6 +382,22 @@ class SystemUpdateInstallTest extends TestCase
         }
 
         return $directory.DIRECTORY_SEPARATOR.$name;
+    }
+
+    private function writeFakePhpBinary(string $logPath): string
+    {
+        $path = $this->fixturePath('fake-php'.(DIRECTORY_SEPARATOR === '\\' ? '.bat' : ''));
+
+        if (DIRECTORY_SEPARATOR === '\\') {
+            file_put_contents($path, "@echo off\r\necho %*>>\"{$logPath}\"\r\nexit /b 0\r\n");
+
+            return $path;
+        }
+
+        file_put_contents($path, "#!/usr/bin/env sh\nprintf '%s\n' \"$*\" >> ".escapeshellarg($logPath)."\nexit 0\n");
+        chmod($path, 0755);
+
+        return $path;
     }
 
     /**
