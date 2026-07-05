@@ -198,19 +198,20 @@ class GitHubReleaseClient
         $owner = (string) config('system_update.github.owner');
         $repo = (string) config('system_update.github.repo');
         $root = rtrim((string) config('system_update.deployment_root', base_path()), DIRECTORY_SEPARATOR.'/\\');
-        $phpBinary = (string) (config('system_update.php_binary') ?: '/www/server/php/82/bin/php');
         $scriptUrl = sprintf(
             'https://api.github.com/repos/%s/%s/contents/scripts/update-backend.sh?ref=%s',
             rawurlencode($owner),
             rawurlencode($repo),
             rawurlencode($tag),
         );
-        $tokenReader = '$env=parse_ini_file(".env", false, INI_SCANNER_RAW) ?: []; '
-            .'echo $env["GITHUB_RELEASE_TOKEN"] ?? $env["SYSTEM_UPDATE_GITHUB_TOKEN"] ?? $env["GITHUB_TOKEN"] ?? "";';
+        $trimTokenCommand = 'printf %s "$TOKEN" | sed -E '.$this->shellQuote('s/^[[:space:]]+//; s/[[:space:]]+$//; s/^"//; s/"$//; s/^\'//; s/\'$//');
 
         return implode(PHP_EOL, [
             'cd '.$this->shellQuote($root),
-            'TOKEN="$('.$this->shellQuote($phpBinary).' -r '.$this->shellQuote($tokenReader).')"',
+            'TOKEN="$('.$this->envTokenCommand('GITHUB_RELEASE_TOKEN').')"',
+            'test -n "$TOKEN" || TOKEN="$('.$this->envTokenCommand('SYSTEM_UPDATE_GITHUB_TOKEN').')"',
+            'test -n "$TOKEN" || TOKEN="$('.$this->envTokenCommand('GITHUB_TOKEN').')"',
+            'TOKEN="$('.$trimTokenCommand.')"',
             'test -n "$TOKEN" || { echo "Missing GITHUB_RELEASE_TOKEN, SYSTEM_UPDATE_GITHUB_TOKEN, or GITHUB_TOKEN in .env"; exit 1; }',
             'curl -fsSL \\',
             '  -H "Authorization: Bearer $TOKEN" \\',
@@ -219,6 +220,12 @@ class GitHubReleaseClient
             '  '.$this->shellQuote($scriptUrl).' \\',
             '  | bash -s -- --tag '.$tag,
         ]);
+    }
+
+    private function envTokenCommand(string $key): string
+    {
+        return 'grep -E '.$this->shellQuote("^[[:space:]]*{$key}[[:space:]]*=")
+            .' .env | tail -n 1 | cut -d= -f2-';
     }
 
     private function shellQuote(string $value): string

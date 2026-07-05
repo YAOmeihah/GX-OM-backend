@@ -67,7 +67,11 @@ class SystemUpdateReleaseCheckTest extends TestCase
                 return str_contains($command, 'SYSTEM_UPDATE_GITHUB_TOKEN')
                     && str_contains($command, 'https://api.github.com/repos/YAOmeihah/GX-OM-backend/contents/scripts/update-backend.sh?ref=v1.2.4')
                     && str_contains($command, 'application/vnd.github.raw+json')
+                    && str_contains($command, 'grep -E')
                     && str_contains($command, '| bash -s -- --tag v1.2.4');
+            });
+            $response->assertJsonPath('data.latest.script_install_command', function (string $command): bool {
+                return ! str_contains($command, '/www/server/php/82/bin/php');
             });
             $response->assertJsonMissingPath('data.latest.package.download_url');
             $response->assertJsonPath('data.has_update', true);

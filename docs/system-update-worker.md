@@ -36,9 +36,10 @@ SYSTEM_UPDATE_GITHUB_REPO=GX-OM-backend
 
 ```bash
 cd /www/wwwroot/api-gx-om.hrlni.cn
-TOKEN="$(
-  /www/server/php/82/bin/php -r '$env=parse_ini_file(".env", false, INI_SCANNER_RAW) ?: []; echo $env["GITHUB_RELEASE_TOKEN"] ?? $env["SYSTEM_UPDATE_GITHUB_TOKEN"] ?? $env["GITHUB_TOKEN"] ?? "";'
-)"
+TOKEN="$(grep -E '^[[:space:]]*GITHUB_RELEASE_TOKEN[[:space:]]*=' .env | tail -n 1 | cut -d= -f2-)"
+test -n "$TOKEN" || TOKEN="$(grep -E '^[[:space:]]*SYSTEM_UPDATE_GITHUB_TOKEN[[:space:]]*=' .env | tail -n 1 | cut -d= -f2-)"
+test -n "$TOKEN" || TOKEN="$(grep -E '^[[:space:]]*GITHUB_TOKEN[[:space:]]*=' .env | tail -n 1 | cut -d= -f2-)"
+TOKEN="$(printf %s "$TOKEN" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/^"//; s/"$//; s/^'\''//; s/'\''$//')"
 test -n "$TOKEN" || { echo "Missing GitHub token in .env"; exit 1; }
 curl -fsSL \
   -H "Authorization: Bearer $TOKEN" \
@@ -53,6 +54,12 @@ curl -fsSL \
 - `curl` 通过 GitHub API 拉取私有仓库里对应 tag 的 `scripts/update-backend.sh`。
 - `bash --tag <tag>` 执行脚本；脚本会再次读取 `.env` token，并下载 `gx-om-backend-<tag>.tar.gz` 和 `.sha256` release asset。
 
+脚本默认使用服务器 PATH 里的 `php` 执行 artisan。若宝塔没有把 PHP 加入 PATH，再临时指定：
+
+```bash
+export PHP_BIN=/path/to/php
+```
+
 ## 本地包备用模式
 
 如果服务器不能访问 GitHub，可以手动把 release 包上传到服务器后执行：
@@ -66,8 +73,8 @@ bash scripts/update-backend.sh /www/wwwroot/packages/gx-om-backend-v1.0.14.tar.g
 
 ```bash
 cd /www/wwwroot/api-gx-om.hrlni.cn
+export PHP_BIN=/path/to/php
 bash scripts/update-backend.sh \
-  --php-bin /www/server/php/82/bin/php \
   --web-user www \
   --web-group www \
   /www/wwwroot/packages/gx-om-backend-v1.0.14.tar.gz \

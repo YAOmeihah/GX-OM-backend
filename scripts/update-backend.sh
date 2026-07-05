@@ -9,7 +9,7 @@ else
   ROOT_DIR="$(pwd)"
 fi
 
-PHP_BIN="${PHP_BIN:-/www/server/php/82/bin/php}"
+PHP_BIN="${PHP_BIN:-php}"
 WEB_USER="${WEB_USER:-www}"
 WEB_GROUP="${WEB_GROUP:-www}"
 PACKAGE_PATH=""
@@ -26,7 +26,7 @@ Options:
   --tag <tag>          Download gx-om-backend-<tag>.tar.gz from a private GitHub Release.
   --sha256 <sha256>   Override the release .sha256 asset when using --tag.
   --root <path>       Deployment root. Defaults to the script parent, or current directory when piped to bash.
-  --php-bin <path>    PHP binary. Defaults to /www/server/php/82/bin/php.
+  --php-bin <path>    PHP binary. Defaults to php from PATH.
   --web-user <user>   FPM user for writable runtime paths. Defaults to www.
   --web-group <group> FPM group for writable runtime paths. Defaults to www.
 
@@ -111,6 +111,24 @@ on_error() {
 }
 
 trap on_error ERR
+
+ensure_php_bin() {
+  if [[ "$PHP_BIN" == */* ]]; then
+    if [[ ! -x "$PHP_BIN" ]]; then
+      echo "PHP binary is not executable: $PHP_BIN" >&2
+      exit 1
+    fi
+
+    return 0
+  fi
+
+  if ! command -v "$PHP_BIN" >/dev/null 2>&1; then
+    echo "PHP binary not found: $PHP_BIN. Set PHP_BIN or pass --php-bin." >&2
+    exit 1
+  fi
+}
+
+ensure_php_bin
 
 read_env_value() {
   local key="$1"

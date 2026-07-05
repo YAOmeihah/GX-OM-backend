@@ -33,5 +33,7 @@ class SystemUpdateManualScriptTest extends TestCase
         $this->assertStringContainsString('/releases/tags/', $script);
         $this->assertStringContainsString('/releases/assets/', $script);
         $this->assertStringContainsString('application/octet-stream', $script);
+        $this->assertStringContainsString('PHP_BIN="${PHP_BIN:-php}"', $script);
+        $this->assertStringNotContainsString('/www/server/php/82/bin/php', $script);
     }
 }
