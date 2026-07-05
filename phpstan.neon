@@ -55,8 +55,5 @@ parameters:
             message: "#^Class App\\\\Http\\\\Middleware\\\\ValidateSignature not found\\.$#"
             path: app/Http/Kernel.php
         -
-            message: "#^Called 'env' outside of the config directory which returns null when the config is cached, use 'config'\\.$#"
-            path: app/Services/WechatService.php
-        -
             message: "#^Undefined variable: \\$this$#"
             path: routes/console.php
