@@ -18,6 +18,7 @@ assertContains($script, 'SYSTEM_UPDATE_GITHUB_DOWNLOAD_BASE_URL', 'download base
 assertContains($script, '使用公开 Release 直链下载', 'script should tell the operator when public direct download is used');
 assertContains($script, '公开直链下载失败，尝试使用 GitHub API 下载', 'token-based API download should remain as fallback');
 assertDoesNotContain($script, 'run_artisan storage:link || true', 'deploy flow should not call storage:link and hide the failure');
+assertDoesNotContain($script, '--retry-connrefused', 'update script should not require curl --retry-connrefused because older server curl versions do not support it');
 
 fwrite(STDOUT, "Backend update script policy tests passed\n");
 

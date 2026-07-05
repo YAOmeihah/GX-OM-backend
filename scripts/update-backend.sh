@@ -347,7 +347,7 @@ github_get() {
   local output="$2"
   local accept="${3:-application/vnd.github+json}"
 
-  curl -fL --retry 2 --retry-delay 3 --retry-connrefused \
+  curl -fL --retry 2 --retry-delay 3 \
     --connect-timeout "$CONNECT_TIMEOUT" --max-time "$DOWNLOAD_TIMEOUT" \
     -H "Authorization: Bearer $GITHUB_TOKEN_VALUE" \
     -H "Accept: $accept" \
@@ -360,7 +360,7 @@ download_file() {
   local url="$1"
   local output="$2"
 
-  curl -fL --retry 2 --retry-delay 3 --retry-connrefused \
+  curl -fL --retry 2 --retry-delay 3 \
     --connect-timeout "$CONNECT_TIMEOUT" --max-time "$DOWNLOAD_TIMEOUT" \
     "$url" \
     -o "$output"
