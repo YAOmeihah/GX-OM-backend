@@ -74,7 +74,7 @@ class WechatService
             'scene' => $scene,
             'width' => $width,
             'check_path' => false, // 暂不校验路径，避免未发布时报错（但实际发布后建议校验）
-            'env_version' => env('APP_ENV') === 'production' ? 'release' : 'trial', // 根据环境选择版本
+            'env_version' => config('app.env') === 'production' ? 'release' : 'trial', // 根据环境选择版本
         ];
 
         if (! empty($page)) {
