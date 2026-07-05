@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP_DIR="$(pwd)"
+ORIGINAL_DIR="$(pwd)"
+APP_DIR="$ORIGINAL_DIR"
 TAG=""
 PHP_BIN="${PHP_BIN:-php}"
 WEB_USER="${WEB_USER:-www}"
@@ -10,6 +11,7 @@ OWNER_DEFAULT="YAOmeihah"
 REPO_DEFAULT="GX-OM-backend"
 DOWNLOAD_TIMEOUT="${DOWNLOAD_TIMEOUT:-300}"
 CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-10}"
+ROOT_ARGUMENT_PROVIDED=0
 
 usage() {
   cat >&2 <<'USAGE'
@@ -40,6 +42,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --root)
       APP_DIR="${2:-}"
+      ROOT_ARGUMENT_PROVIDED=1
       shift 2
       ;;
     --php-bin)
@@ -64,16 +67,99 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-APP_DIR="$(cd "$APP_DIR" && pwd)"
+app_root_markers() {
+  cat <<'MARKERS'
+.env
+artisan
+app/
+bootstrap/app.php
+config/
+database/
+public/
+resources/
+routes/
+MARKERS
+}
+
+missing_app_root_markers() {
+  local dir="$1"
+  local missing=0
+
+  while IFS= read -r marker; do
+    if [[ "$marker" == */ ]]; then
+      [[ -d "$dir/${marker%/}" ]] && continue
+    else
+      [[ -f "$dir/$marker" ]] && continue
+    fi
+
+    echo "  - $marker"
+    missing=1
+  done < <(app_root_markers)
+
+  return "$missing"
+}
+
+is_app_root() {
+  local dir="$1"
+
+  [[ -d "$dir" ]] || return 1
+  [[ -f "$dir/.env" ]] || return 1
+  [[ -f "$dir/artisan" ]] || return 1
+  [[ -f "$dir/bootstrap/app.php" ]] || return 1
+  [[ -d "$dir/app" ]] || return 1
+  [[ -d "$dir/config" ]] || return 1
+  [[ -d "$dir/database" ]] || return 1
+  [[ -d "$dir/public" ]] || return 1
+  [[ -d "$dir/resources" ]] || return 1
+  [[ -d "$dir/routes" ]] || return 1
+}
+
+print_root_suggestions() {
+  local candidate
+  local candidates=(
+    "$ORIGINAL_DIR/.."
+    "$ORIGINAL_DIR/../.."
+    "/www/wwwroot/api-gx-om.hrlni.cn"
+  )
+
+  for candidate in "${candidates[@]}"; do
+    if candidate="$(cd "$candidate" 2>/dev/null && pwd)" && is_app_root "$candidate"; then
+      echo "检测到可能的正确目录:"
+      echo "  $candidate"
+      echo "可以这样执行:"
+      echo "  cd $candidate"
+      echo "  # 然后重新执行更新命令"
+      echo "或者传入:"
+      echo "  --root $candidate"
+      return 0
+    fi
+  done
+
+  echo "请确认你在 Laravel 后端根目录执行，或传入 --root /www/wwwroot/api-gx-om.hrlni.cn。"
+}
+
+if ! APP_DIR="$(cd "$APP_DIR" 2>/dev/null && pwd)"; then
+  echo "项目根目录不存在或不可访问: $APP_DIR" >&2
+  echo "请先 cd /www/wwwroot/api-gx-om.hrlni.cn，或传入 --root /www/wwwroot/api-gx-om.hrlni.cn。" >&2
+  exit 1
+fi
 
 if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "--tag 必须是 vX.Y.Z 格式，例如 v1.0.16。" >&2
   exit 1
 fi
 
-if [[ ! -f "$APP_DIR/artisan" || ! -f "$APP_DIR/.env" ]]; then
+if ! is_app_root "$APP_DIR"; then
   echo "项目根目录无效: $APP_DIR" >&2
-  echo "请在 Laravel 根目录执行，或传入 --root /path/to/app。" >&2
+  echo "当前执行目录: $ORIGINAL_DIR" >&2
+  if [[ "$ROOT_ARGUMENT_PROVIDED" == "1" ]]; then
+    echo "你传入的 --root 目录不是有效的 GX-OM 后端根目录。" >&2
+  else
+    echo "你当前不在有效的 GX-OM 后端根目录。" >&2
+  fi
+  echo "缺少以下必要标记:" >&2
+  missing_app_root_markers "$APP_DIR" >&2 || true
+  print_root_suggestions >&2
   exit 1
 fi
 
@@ -92,7 +178,7 @@ CHECKSUM_PATH="$WORK_DIR/$PACKAGE_NAME.sha256"
 LOG_PATH="$APP_DIR/storage/logs/manual-update-$TIMESTAMP.log"
 MAINTENANCE_DOWN=0
 STEP=0
-STEP_TOTAL=12
+STEP_TOTAL=13
 CURRENT_STEP="initializing"
 
 mkdir -p "$APP_DIR/storage/logs"
@@ -133,6 +219,49 @@ run_artisan() {
   detail "$PHP_BIN artisan $*"
   "$PHP_BIN" "$APP_DIR/artisan" "$@" \
     2> >(grep -vE '^PHP Warning:  Module "(mbstring|exif)" is already loaded in Unknown on line 0$' >&2 || true)
+}
+
+preflight_environment() {
+  local command_name
+  local missing_commands=0
+
+  step "预检项目目录和命令"
+  detail "脚本启动目录: $ORIGINAL_DIR"
+  if [[ "$ROOT_ARGUMENT_PROVIDED" == "1" ]]; then
+    detail "使用 --root 指定项目根目录: $APP_DIR"
+  else
+    detail "使用当前目录作为项目根目录: $APP_DIR"
+  fi
+
+  detail "项目根目录标记检查通过。"
+  for command_name in curl tar rsync sha256sum grep sed awk du; do
+    if command -v "$command_name" >/dev/null 2>&1; then
+      detail "命令可用: $command_name ($(command -v "$command_name"))"
+      continue
+    fi
+
+    echo "缺少必要命令: $command_name" >&2
+    missing_commands=1
+  done
+
+  if [[ "$missing_commands" == "1" ]]; then
+    echo "服务器缺少更新所需命令，请先安装后再重试。" >&2
+    exit 1
+  fi
+
+  if [[ ! -w "$APP_DIR" ]]; then
+    echo "当前用户没有项目根目录写入权限: $APP_DIR" >&2
+    echo "请使用有权限的用户执行，例如 root 或站点部署用户。" >&2
+    exit 1
+  fi
+
+  if [[ ! -f "$APP_DIR/composer.json" ]]; then
+    detail "提醒: 当前根目录 composer.json 缺失，新版本包会恢复它。"
+  fi
+
+  if [[ ! -f "$APP_DIR/release.json" ]]; then
+    detail "提醒: 当前根目录 release.json 缺失，新版本包会恢复它。"
+  fi
 }
 
 on_error() {
@@ -421,6 +550,8 @@ detail "当前版本: $(release_value tag || true) ($(release_value version || t
 detail "PHP 可执行文件: $PHP_BIN"
 detail "临时工作目录: $WORK_DIR"
 detail "日志文件: $LOG_PATH"
+
+preflight_environment
 
 step "准备临时工作目录"
 rm -rf "$WORK_DIR"
