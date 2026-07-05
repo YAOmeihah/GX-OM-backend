@@ -92,7 +92,7 @@ CHECKSUM_PATH="$WORK_DIR/$PACKAGE_NAME.sha256"
 LOG_PATH="$APP_DIR/storage/logs/manual-update-$TIMESTAMP.log"
 MAINTENANCE_DOWN=0
 STEP=0
-STEP_TOTAL=11
+STEP_TOTAL=12
 CURRENT_STEP="initializing"
 
 mkdir -p "$APP_DIR/storage/logs"
@@ -381,6 +381,8 @@ deploy_package() {
     --exclude="public/app_update/" \
     --exclude="public/.user.ini" \
     "$RELEASE_DIR/" "$APP_DIR/"
+  cp -f "$RELEASE_DIR/release.json" "$APP_DIR/release.json"
+  detail "版本元数据已强制刷新: $APP_DIR/release.json"
 
   step "检查运行时目录权限"
   ensure_runtime_paths
@@ -395,6 +397,17 @@ deploy_package() {
   run_artisan config:cache
   run_artisan route:cache
   run_artisan view:cache
+
+  step "校验安装版本"
+  local installed_tag
+  local installed_version
+  installed_tag="$(release_value tag || true)"
+  installed_version="$(release_value version || true)"
+  detail "当前根目录 release.json: $installed_tag ($installed_version)"
+  if [[ "$installed_tag" != "$TAG" ]]; then
+    echo "安装版本校验失败: 期望 $TAG，实际 ${installed_tag:-未读取到 tag}" >&2
+    exit 1
+  fi
 
   step "恢复线上服务"
   run_artisan up
