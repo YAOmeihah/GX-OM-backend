@@ -13,20 +13,20 @@ CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-10}"
 
 usage() {
   cat >&2 <<'USAGE'
-Usage:
+用法:
   bash update-backend.sh --tag v1.0.16 [--root /www/wwwroot/api-gx-om.hrlni.cn]
 
-What it does:
-  1. Reads GitHub token from .env.
-  2. Tries to download gx-om-backend-<tag>.tar.gz and its .sha256 from GitHub Release.
-  3. If download fails or times out, waits for you to upload the package into the app root.
-  4. Verifies SHA256 when a checksum is available.
-  5. Deploys the package while preserving .env, storage, public/storage, public/app_update, and .user.ini.
+脚本流程:
+  1. 从 .env 读取 GitHub token。
+  2. 尝试从 GitHub Release 下载 gx-om-backend-<tag>.tar.gz 和 .sha256。
+  3. 如果下载失败或超时，等待你把更新包上传到项目根目录。
+  4. 如果存在校验文件，则校验 SHA256。
+  5. 部署更新包，并保留 .env、storage、public/storage、public/app_update、.user.ini。
 
-.env token keys:
+.env token 变量:
   SYSTEM_UPDATE_GITHUB_TOKEN, GITHUB_RELEASE_TOKEN, or GITHUB_TOKEN
 
-.env optional repo keys:
+.env 可选仓库变量:
   SYSTEM_UPDATE_GITHUB_OWNER / GITHUB_RELEASE_OWNER
   SYSTEM_UPDATE_GITHUB_REPO / GITHUB_RELEASE_REPO
 USAGE
@@ -57,7 +57,7 @@ while [[ $# -gt 0 ]]; do
         continue
       fi
 
-      echo "Unknown argument: $1" >&2
+      echo "未知参数: $1" >&2
       usage
       exit 1
       ;;
@@ -67,19 +67,19 @@ done
 APP_DIR="$(cd "$APP_DIR" && pwd)"
 
 if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "--tag must look like vX.Y.Z, for example v1.0.16." >&2
+  echo "--tag 必须是 vX.Y.Z 格式，例如 v1.0.16。" >&2
   exit 1
 fi
 
 if [[ ! -f "$APP_DIR/artisan" || ! -f "$APP_DIR/.env" ]]; then
-  echo "App root is invalid: $APP_DIR" >&2
-  echo "Run from the Laravel root or pass --root /path/to/app." >&2
+  echo "项目根目录无效: $APP_DIR" >&2
+  echo "请在 Laravel 根目录执行，或传入 --root /path/to/app。" >&2
   exit 1
 fi
 
 if ! command -v "$PHP_BIN" >/dev/null 2>&1; then
-  echo "PHP binary not found: $PHP_BIN" >&2
-  echo "Set PHP_BIN=/www/server/php/82/bin/php or pass --php-bin." >&2
+  echo "找不到 PHP 可执行文件: $PHP_BIN" >&2
+  echo "请设置 PHP_BIN=/www/server/php/82/bin/php，或传入 --php-bin。" >&2
   exit 1
 fi
 
@@ -91,18 +91,58 @@ PACKAGE_PATH="$WORK_DIR/$PACKAGE_NAME"
 CHECKSUM_PATH="$WORK_DIR/$PACKAGE_NAME.sha256"
 LOG_PATH="$APP_DIR/storage/logs/manual-update-$TIMESTAMP.log"
 MAINTENANCE_DOWN=0
+STEP=0
+STEP_TOTAL=11
+CURRENT_STEP="initializing"
 
 mkdir -p "$APP_DIR/storage/logs"
 exec > >(tee -a "$LOG_PATH") 2>&1
 
+timestamp() {
+  date '+%Y-%m-%d %H:%M:%S'
+}
+
+log() {
+  printf '[%s] %s\n' "$(timestamp)" "$*"
+}
+
+detail() {
+  log "  $*"
+}
+
+step() {
+  STEP=$((STEP + 1))
+  CURRENT_STEP="$1"
+  log "[$STEP/$STEP_TOTAL] $CURRENT_STEP"
+}
+
+file_size() {
+  du -h "$1" 2>/dev/null | awk '{print $1}'
+}
+
+release_value() {
+  local key="$1"
+  local path="$APP_DIR/release.json"
+
+  [[ -f "$path" ]] || return 0
+
+  sed -nE "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"([^\"]*)\".*/\1/p" "$path" | head -n 1
+}
+
+run_artisan() {
+  detail "$PHP_BIN artisan $*"
+  "$PHP_BIN" "$APP_DIR/artisan" "$@" \
+    2> >(grep -vE '^PHP Warning:  Module "(mbstring|exif)" is already loaded in Unknown on line 0$' >&2 || true)
+}
+
 on_error() {
   local code=$?
 
-  echo "Update failed with exit code $code."
+  log "更新失败，退出码: $code，失败阶段: $CURRENT_STEP"
   if [[ "$MAINTENANCE_DOWN" == "1" ]]; then
-    "$PHP_BIN" "$APP_DIR/artisan" up || true
+    run_artisan up || true
   fi
-  echo "Log: $LOG_PATH"
+  log "日志文件: $LOG_PATH"
 
   exit "$code"
 }
@@ -139,7 +179,7 @@ wait_for_enter() {
   if [[ -r /dev/tty ]]; then
     read -r _ </dev/tty || true
   else
-    echo "No TTY is available; checking every 5 seconds."
+    echo "当前没有可交互终端，每 5 秒自动检查一次。"
     sleep 5
   fi
 }
@@ -151,7 +191,7 @@ find_asset_id() {
   "$PHP_BIN" -r '
     $json = json_decode(file_get_contents($argv[1]), true);
     if (! is_array($json)) {
-        fwrite(STDERR, "Invalid GitHub release JSON.\n");
+        fwrite(STDERR, "GitHub Release JSON 无效。\n");
         exit(2);
     }
     foreach (($json["assets"] ?? []) as $asset) {
@@ -180,7 +220,7 @@ github_get() {
 download_from_github() {
   GITHUB_TOKEN_VALUE="$(first_env_value SYSTEM_UPDATE_GITHUB_TOKEN GITHUB_RELEASE_TOKEN GITHUB_TOKEN)"
   if [[ -z "$GITHUB_TOKEN_VALUE" ]]; then
-    echo "No GitHub token found in .env; will use manual upload fallback."
+    detail "GitHub token: 未找到，将改为手动上传模式。"
     return 1
   fi
 
@@ -198,23 +238,31 @@ download_from_github() {
   repo="${repo:-$REPO_DEFAULT}"
   api_url="${api_url:-https://api.github.com}"
 
-  echo "Trying GitHub download: $owner/$repo $TAG"
+  detail "GitHub token: 已找到（已隐藏）"
+  detail "Release 接口: $owner/$repo $TAG"
+  detail "下载超时: ${DOWNLOAD_TIMEOUT}s，连接超时: ${CONNECT_TIMEOUT}s"
+
+  detail "正在获取 Release 元数据..."
   github_get "$api_url/repos/$owner/$repo/releases/tags/$TAG" "$release_json" || return 1
 
   package_asset_id="$(find_asset_id "$release_json" "$PACKAGE_NAME" 2>/dev/null || true)"
   checksum_asset_id="$(find_asset_id "$release_json" "$PACKAGE_NAME.sha256" 2>/dev/null || true)"
 
   if [[ -z "$package_asset_id" ]]; then
-    echo "Release asset not found: $PACKAGE_NAME"
+    echo "未找到 Release 资产: $PACKAGE_NAME"
     return 1
   fi
 
-  echo "Downloading package: $PACKAGE_NAME"
+  detail "正在下载更新包: $PACKAGE_NAME"
   github_get "$api_url/repos/$owner/$repo/releases/assets/$package_asset_id" "$PACKAGE_PATH" "application/octet-stream" || return 1
+  detail "更新包已保存: $PACKAGE_PATH ($(file_size "$PACKAGE_PATH"))"
 
   if [[ -n "$checksum_asset_id" ]]; then
-    echo "Downloading checksum: $PACKAGE_NAME.sha256"
+    detail "正在下载校验文件: $PACKAGE_NAME.sha256"
     github_get "$api_url/repos/$owner/$repo/releases/assets/$checksum_asset_id" "$CHECKSUM_PATH" "application/octet-stream" || true
+    if [[ -f "$CHECKSUM_PATH" ]]; then
+      detail "校验文件已保存: $CHECKSUM_PATH"
+    fi
   fi
 
   return 0
@@ -224,44 +272,51 @@ manual_upload_fallback() {
   local root_package="$APP_DIR/$PACKAGE_NAME"
   local root_checksum="$APP_DIR/$PACKAGE_NAME.sha256"
 
-  echo "GitHub download failed or timed out."
-  echo "Upload this file to the app root:"
-  echo "  $root_package"
-  echo "Optional checksum file:"
-  echo "  $root_checksum"
-  echo "After upload finishes, press Enter here. The script will keep waiting until the package exists."
+  detail "GitHub 下载失败或超时。"
+  detail "请把这个文件上传到项目根目录:"
+  detail "$root_package"
+  detail "可选校验文件:"
+  detail "$root_checksum"
+  detail "上传完成后在这里按回车。脚本会一直等待，直到检测到更新包。"
 
   while [[ ! -f "$root_package" ]]; do
     wait_for_enter
+    if [[ ! -f "$root_package" ]]; then
+      detail "仍在等待文件: $root_package"
+    fi
   done
 
   cp "$root_package" "$PACKAGE_PATH"
+  detail "手动上传的更新包已复制: $PACKAGE_PATH ($(file_size "$PACKAGE_PATH"))"
   if [[ -f "$root_checksum" ]]; then
     cp "$root_checksum" "$CHECKSUM_PATH"
+    detail "手动上传的校验文件已复制: $CHECKSUM_PATH"
   fi
 }
 
 verify_package() {
   if [[ ! -f "$PACKAGE_PATH" ]]; then
-    echo "Package does not exist: $PACKAGE_PATH" >&2
+    echo "更新包不存在: $PACKAGE_PATH" >&2
     exit 1
   fi
 
   if [[ -f "$CHECKSUM_PATH" ]]; then
+    detail "正在校验 SHA256: $CHECKSUM_PATH"
     (
       cd "$WORK_DIR"
       sha256sum -c "$PACKAGE_NAME.sha256"
     )
+    detail "SHA256 校验通过。"
     return
   fi
 
-  echo "No .sha256 file found. Current package SHA256:"
+  detail "没有找到 .sha256 文件，当前更新包 SHA256:"
   sha256sum "$PACKAGE_PATH"
-  echo "Type YES to continue without checksum verification."
+  detail "如果确认继续部署，请输入 YES。"
   if [[ -r /dev/tty ]]; then
     read -r confirm </dev/tty
   else
-    echo "No TTY available, refusing to deploy without checksum." >&2
+    echo "当前没有可交互终端，且缺少校验文件，拒绝部署。" >&2
     exit 1
   fi
 
@@ -288,8 +343,10 @@ ensure_runtime_paths() {
 }
 
 deploy_package() {
+  step "解压更新包"
   rm -rf "$RELEASE_DIR"
   mkdir -p "$RELEASE_DIR"
+  detail "解压目录: $RELEASE_DIR"
 
   if tar --warning=no-timestamp -tf "$PACKAGE_PATH" >/dev/null 2>&1; then
     tar --warning=no-timestamp -xzf "$PACKAGE_PATH" -C "$RELEASE_DIR"
@@ -297,19 +354,26 @@ deploy_package() {
     tar -xzf "$PACKAGE_PATH" -C "$RELEASE_DIR"
   fi
 
+  step "检查更新包边界"
   for entry in .env.example app artisan bootstrap composer.json composer.lock config database public release.json resources routes vendor; do
     if [[ ! -e "$RELEASE_DIR/$entry" ]]; then
-      echo "Release package missing required entry: $entry" >&2
+      echo "更新包缺少必要文件或目录: $entry" >&2
       exit 1
     fi
   done
+  detail "必要文件和目录检查通过。"
+  detail "发布元数据: $(tr -d '\n' <"$RELEASE_DIR/release.json")"
 
   cd "$APP_DIR"
 
-  "$PHP_BIN" artisan down || true
+  step "进入维护模式"
+  run_artisan down || true
   MAINTENANCE_DOWN=1
 
-  rsync -a --delete \
+  step "同步新版本文件"
+  detail "使用 rsync --checksum --delete，按文件内容同步，并保护以下路径:"
+  detail ".env, .user.ini, storage/, public/storage, public/app_update/, public/.user.ini"
+  rsync -a --checksum --delete \
     --exclude=".env" \
     --exclude=".user.ini" \
     --exclude="storage/" \
@@ -318,32 +382,47 @@ deploy_package() {
     --exclude="public/.user.ini" \
     "$RELEASE_DIR/" "$APP_DIR/"
 
+  step "检查运行时目录权限"
   ensure_runtime_paths
+  detail "运行时目录已准备: bootstrap/cache, storage, public/app_update"
 
-  "$PHP_BIN" artisan migrate --force
-  "$PHP_BIN" artisan storage:link || true
-  "$PHP_BIN" artisan optimize:clear
-  "$PHP_BIN" artisan config:cache
-  "$PHP_BIN" artisan route:cache
-  "$PHP_BIN" artisan view:cache
-  "$PHP_BIN" artisan up
+  step "执行数据库迁移"
+  run_artisan migrate --force
+
+  step "重建 Laravel 链接和缓存"
+  run_artisan storage:link || true
+  run_artisan optimize:clear
+  run_artisan config:cache
+  run_artisan route:cache
+  run_artisan view:cache
+
+  step "恢复线上服务"
+  run_artisan up
   MAINTENANCE_DOWN=0
 }
 
-echo "GX-OM backend update"
-echo "Root: $APP_DIR"
-echo "Tag: $TAG"
-echo "Log: $LOG_PATH"
+log "GX-OM 后端更新开始"
+detail "项目根目录: $APP_DIR"
+detail "目标版本: $TAG"
+detail "当前版本: $(release_value tag || true) ($(release_value version || true))"
+detail "PHP 可执行文件: $PHP_BIN"
+detail "临时工作目录: $WORK_DIR"
+detail "日志文件: $LOG_PATH"
 
+step "准备临时工作目录"
 rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR"
+detail "临时工作目录已准备: $WORK_DIR"
 
+step "下载更新包或等待手动上传"
 if ! download_from_github; then
   manual_upload_fallback
 fi
 
+step "校验更新包"
 verify_package
 deploy_package
 
-echo "Backend updated to $TAG"
-echo "Log: $LOG_PATH"
+detail "已安装版本: $(release_value tag || true) ($(release_value version || true))"
+log "后端更新完成: $TAG"
+log "日志文件: $LOG_PATH"
