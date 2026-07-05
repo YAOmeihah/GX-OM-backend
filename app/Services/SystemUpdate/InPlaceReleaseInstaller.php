@@ -29,11 +29,18 @@ class InPlaceReleaseInstaller
         'storage',
         'public/storage',
         'public/.user.ini',
+        'public/app_update',
+        'bootstrap/cache',
     ];
 
     private const PRESERVED_PUBLIC_ENTRIES = [
         'storage',
         '.user.ini',
+        'app_update',
+    ];
+
+    private const PRESERVED_BOOTSTRAP_ENTRIES = [
+        'cache',
     ];
 
     private Filesystem $files;
@@ -226,6 +233,12 @@ class InPlaceReleaseInstaller
                 continue;
             }
 
+            if ($entry === 'bootstrap') {
+                $this->copyDirectoryContents($source, $this->join($backupPath, $entry), self::PRESERVED_BOOTSTRAP_ENTRIES);
+
+                continue;
+            }
+
             $this->copy($source, $this->join($backupPath, $entry));
         }
     }
@@ -242,6 +255,12 @@ class InPlaceReleaseInstaller
 
             if ($entry === 'public') {
                 $this->replaceDirectoryContents($source, $target, self::PRESERVED_PUBLIC_ENTRIES);
+
+                continue;
+            }
+
+            if ($entry === 'bootstrap') {
+                $this->replaceDirectoryContents($source, $target, self::PRESERVED_BOOTSTRAP_ENTRIES);
 
                 continue;
             }
@@ -272,6 +291,12 @@ class InPlaceReleaseInstaller
 
             if ($entry === 'public') {
                 $this->replaceDirectoryContents($source, $target, self::PRESERVED_PUBLIC_ENTRIES);
+
+                continue;
+            }
+
+            if ($entry === 'bootstrap') {
+                $this->replaceDirectoryContents($source, $target, self::PRESERVED_BOOTSTRAP_ENTRIES);
 
                 continue;
             }

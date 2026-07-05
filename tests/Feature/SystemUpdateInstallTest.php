@@ -87,6 +87,10 @@ class SystemUpdateInstallTest extends TestCase
             ->assertJsonPath('data.status', 'uploaded')
             ->assertJsonPath('data.step', 'uploaded');
 
+        $installCommand = (string) $response->json('data.install_command');
+        $this->assertStringContainsString('scripts/update-backend.sh', $installCommand);
+        $this->assertStringContainsString($sha256, $installCommand);
+
         $run = SystemUpdateRun::query()->latest('id')->firstOrFail();
         $this->assertSame($admin->id, $run->actor_user_id);
         $this->assertSame('v1.2.4', $run->tag);
@@ -98,9 +102,10 @@ class SystemUpdateInstallTest extends TestCase
         $this->assertSame('gx-om-backend-v1.2.4.tar.gz', $run->metadata['package_name']);
         $this->assertFileExists((string) $run->package_path);
         $this->assertSame($sha256, hash_file('sha256', (string) $run->package_path));
+        $this->assertStringContainsString((string) $run->package_path, $installCommand);
     }
 
-    public function test_queue_uploaded_run_only_marks_it_for_cli_worker(): void
+    public function test_queue_uploaded_run_endpoint_is_retired_for_manual_script_updates(): void
     {
         $packagePath = $this->fixturePath('queue-only.tar.gz');
         $sha256 = $this->writeValidReleasePackage($packagePath);
@@ -122,15 +127,14 @@ class SystemUpdateInstallTest extends TestCase
         ]);
 
         $this->postJson("/api/system-updates/runs/{$run->id}/queue")
-            ->assertAccepted()
-            ->assertJsonPath('data.run_id', $run->id)
-            ->assertJsonPath('data.status', 'queued')
-            ->assertJsonPath('data.step', 'queued');
+            ->assertStatus(410)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('data.replacement.script', 'scripts/update-backend.sh');
 
         $run->refresh();
-        $this->assertSame('queued', $run->status);
-        $this->assertSame('queued', $run->step);
-        $this->assertContains('Queued for CLI system update worker.', $run->log_lines);
+        $this->assertSame('uploaded', $run->status);
+        $this->assertSame('uploaded', $run->step);
+        $this->assertNotContains('Queued for CLI system update worker.', $run->log_lines);
     }
 
     public function test_worker_once_installs_a_queued_uploaded_package(): void
@@ -190,6 +194,9 @@ class SystemUpdateInstallTest extends TestCase
             'storage/app/runtime.txt' => 'local runtime',
             'public/storage/upload.txt' => 'linked upload',
             'public/.user.ini' => $userIni,
+            'public/app_update/update.json' => '{"versionName":"1.0.16"}',
+            'public/app_update/GX-OM-1.0.16.apk' => 'apk file',
+            'bootstrap/cache/services.php' => '<?php return ["old" => true];',
             'public/index.php' => 'old public index',
             'app/Services/Existing.php' => 'old service',
             'release.json' => '{"version":"1.2.3"}',
@@ -203,6 +210,9 @@ class SystemUpdateInstallTest extends TestCase
         $this->assertSame(0, $exitCode, Artisan::output());
         $this->assertSame($userIni, file_get_contents($root.'/public/.user.ini'));
         $this->assertSame('linked upload', file_get_contents($root.'/public/storage/upload.txt'));
+        $this->assertSame('{"versionName":"1.0.16"}', file_get_contents($root.'/public/app_update/update.json'));
+        $this->assertSame('apk file', file_get_contents($root.'/public/app_update/GX-OM-1.0.16.apk'));
+        $this->assertSame('<?php return ["old" => true];', file_get_contents($root.'/bootstrap/cache/services.php'));
 
         $run->refresh();
         $this->assertSame('completed', $run->status);

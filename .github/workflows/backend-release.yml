@@ -142,6 +142,7 @@ jobs:
             artisan
             composer.lock
             release.json
+            scripts/update-backend.sh
             storage/app/maintenance_exports/
             storage/app/private/
             storage/app/public/

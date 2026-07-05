@@ -105,7 +105,7 @@ class SystemUpdateService
                 'package_name' => $expectedName,
                 'uploaded_size' => $package->getSize(),
             ],
-            'log_lines' => ['Uploaded release package.', 'Waiting for CLI worker queue.'],
+            'log_lines' => ['Uploaded release package.', 'Waiting for manual server script install.'],
         ]);
 
         $destination = $this->uploadedPackagePath($tag, $run->id, $expectedName);
@@ -119,6 +119,8 @@ class SystemUpdateService
             'run_id' => $run->id,
             'status' => $run->status,
             'step' => $run->step,
+            'package_path' => $run->package_path,
+            'install_command' => $this->manualInstallCommand((string) $run->package_path, $providedSha256),
         ];
     }
 
@@ -334,6 +336,18 @@ class SystemUpdateService
         return $root.DIRECTORY_SEPARATOR.'storage'.DIRECTORY_SEPARATOR.'app'.DIRECTORY_SEPARATOR.'system_updates'
             .DIRECTORY_SEPARATOR.'uploads'.DIRECTORY_SEPARATOR.$tag
             .DIRECTORY_SEPARATOR.'run-'.$runId.'-'.$packageName;
+    }
+
+    private function manualInstallCommand(string $packagePath, string $sha256): string
+    {
+        $root = rtrim((string) config('system_update.deployment_root', base_path()), DIRECTORY_SEPARATOR.'/\\');
+
+        return sprintf(
+            'cd %s && bash scripts/update-backend.sh %s %s',
+            escapeshellarg($root),
+            escapeshellarg($packagePath),
+            escapeshellarg(strtolower($sha256))
+        );
     }
 
     private function ensureDirectory(string $path): void

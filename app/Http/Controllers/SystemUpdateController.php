@@ -34,11 +34,10 @@ class SystemUpdateController extends ApiController
 
     public function install(): \Illuminate\Http\JsonResponse
     {
-        return $this->errorResponse('Online download and install has been removed. Upload a release package and run the CLI worker.', 410, [
+        return $this->errorResponse('Online download and install has been removed. Upload a release package and run scripts/update-backend.sh on the server.', 410, [
             'replacement' => [
                 'upload' => '/api/system-updates/uploads',
-                'queue' => '/api/system-updates/runs/{run}/queue',
-                'worker' => 'php artisan system-update:worker --once',
+                'script' => 'scripts/update-backend.sh',
             ],
         ]);
     }
@@ -87,31 +86,22 @@ class SystemUpdateController extends ApiController
         return $this->successResponse($run->toArray());
     }
 
-    public function queueRun(
-        SystemUpdateRun $run,
-        SystemUpdateService $systemUpdateService
-    ): \Illuminate\Http\JsonResponse {
-        try {
-            return $this->successResponse(
-                $systemUpdateService->queueRun($run),
-                'System update run queued for CLI worker.',
-                202
-            );
-        } catch (SystemUpdateEnvironmentNotReadyException $exception) {
-            return $this->errorResponse('System update environment is not ready.', 412, [
-                'preflight' => $exception->report(),
-            ]);
-        } catch (UnexpectedValueException $exception) {
-            return $this->errorResponse($exception->getMessage(), 422);
-        }
+    public function queueRun(SystemUpdateRun $run): \Illuminate\Http\JsonResponse
+    {
+        return $this->errorResponse('Queue-based update installation has been removed. Run scripts/update-backend.sh on the server with the uploaded package path and SHA256.', 410, [
+            'replacement' => [
+                'script' => 'scripts/update-backend.sh',
+                'example' => 'bash scripts/update-backend.sh <package_path> <sha256>',
+            ],
+        ]);
     }
 
     public function installRun(): \Illuminate\Http\JsonResponse
     {
-        return $this->errorResponse('HTTP install execution has been removed. Queue the run and execute php artisan system-update:worker --once from CLI.', 410, [
+        return $this->errorResponse('HTTP install execution has been removed. Run scripts/update-backend.sh on the server.', 410, [
             'replacement' => [
-                'queue' => '/api/system-updates/runs/{run}/queue',
-                'worker' => 'php artisan system-update:worker --once',
+                'script' => 'scripts/update-backend.sh',
+                'example' => 'bash scripts/update-backend.sh <package_path> <sha256>',
             ],
         ]);
     }

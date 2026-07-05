@@ -40,6 +40,7 @@ $runtimeEntries = [
     'public',
     'resources',
     'routes',
+    'scripts/update-backend.sh',
     'vendor',
     'artisan',
     'composer.lock',
