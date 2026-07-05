@@ -140,6 +140,7 @@ jobs:
             routes/
             vendor/
             artisan
+            composer.json
             composer.lock
             release.json
             storage/app/maintenance_exports/
@@ -162,7 +163,6 @@ jobs:
             API_DOCUMENTATION
             PERMISSION_SYSTEM
             auth.json
-            composer.json
             create_test_data.php
             docs/
             generate_test_token.php

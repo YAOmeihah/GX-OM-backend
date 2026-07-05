@@ -291,9 +291,13 @@ deploy_package() {
   rm -rf "$RELEASE_DIR"
   mkdir -p "$RELEASE_DIR"
 
-  tar -xzf "$PACKAGE_PATH" -C "$RELEASE_DIR"
+  if tar --warning=no-timestamp -tf "$PACKAGE_PATH" >/dev/null 2>&1; then
+    tar --warning=no-timestamp -xzf "$PACKAGE_PATH" -C "$RELEASE_DIR"
+  else
+    tar -xzf "$PACKAGE_PATH" -C "$RELEASE_DIR"
+  fi
 
-  for entry in .env.example app artisan bootstrap composer.lock config database public release.json resources routes vendor; do
+  for entry in .env.example app artisan bootstrap composer.json composer.lock config database public release.json resources routes vendor; do
     if [[ ! -e "$RELEASE_DIR/$entry" ]]; then
       echo "Release package missing required entry: $entry" >&2
       exit 1

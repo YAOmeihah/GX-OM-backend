@@ -42,6 +42,7 @@ $runtimeEntries = [
     'routes',
     'vendor',
     'artisan',
+    'composer.json',
     'composer.lock',
 ];
 
