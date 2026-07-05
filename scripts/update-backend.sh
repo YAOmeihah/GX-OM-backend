@@ -471,6 +471,40 @@ ensure_runtime_paths() {
   fi
 }
 
+ensure_storage_link() {
+  local link_path="$APP_DIR/public/storage"
+  local target_path="$APP_DIR/storage/app/public"
+  local resolved_link=""
+  local resolved_target=""
+
+  mkdir -p "$target_path"
+
+  if [[ -L "$link_path" ]]; then
+    resolved_link="$(readlink -f "$link_path" 2>/dev/null || true)"
+    resolved_target="$(readlink -f "$target_path" 2>/dev/null || true)"
+
+    if [[ -n "$resolved_link" && "$resolved_link" == "$resolved_target" ]]; then
+      detail "public/storage 链接已存在且指向正确，跳过创建。"
+      return 0
+    fi
+
+    detail "public/storage 链接已存在但指向不正确，正在重建。"
+    detail "当前指向: ${resolved_link:-无法解析}"
+    detail "期望指向: ${resolved_target:-$target_path}"
+    rm -f "$link_path"
+    run_artisan storage:link
+    return 0
+  fi
+
+  if [[ -e "$link_path" ]]; then
+    detail "public/storage 已存在但不是软链接，为避免误删线上文件，保留并跳过创建。"
+    detail "如附件访问异常，请人工检查: $link_path"
+    return 0
+  fi
+
+  run_artisan storage:link
+}
+
 deploy_package() {
   step "解压更新包"
   rm -rf "$RELEASE_DIR"
@@ -521,7 +555,7 @@ deploy_package() {
   run_artisan migrate --force
 
   step "重建 Laravel 链接和缓存"
-  run_artisan storage:link || true
+  ensure_storage_link
   run_artisan optimize:clear
   run_artisan config:cache
   run_artisan route:cache
