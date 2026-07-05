@@ -11,6 +11,7 @@ OWNER_DEFAULT="YAOmeihah"
 REPO_DEFAULT="GX-OM-backend"
 DOWNLOAD_TIMEOUT="${DOWNLOAD_TIMEOUT:-600}"
 CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-10}"
+DOWNLOAD_BASE_URL=""
 ROOT_ARGUMENT_PROVIDED=0
 
 usage() {
@@ -19,8 +20,8 @@ usage() {
   bash update-backend.sh --tag v1.0.16 [--root /www/wwwroot/api-gx-om.hrlni.cn]
 
 脚本流程:
-  1. 从 .env 读取 GitHub token。
-  2. 尝试从 GitHub Release 下载 gx-om-backend-<tag>.tar.gz 和 .sha256。
+  1. 优先使用公开 GitHub Release 直链下载 gx-om-backend-<tag>.tar.gz 和 .sha256。
+  2. 如果公开直链失败，且 .env 存在 GitHub token，则回退到 GitHub API 下载。
   3. 如果下载失败或超时，等待你把更新包上传到项目根目录。
   4. 如果存在校验文件，则校验 SHA256。
   5. 部署更新包，并保留 .env、storage、public/storage、public/app_update、.user.ini。
@@ -31,6 +32,10 @@ usage() {
 .env 可选仓库变量:
   SYSTEM_UPDATE_GITHUB_OWNER / GITHUB_RELEASE_OWNER
   SYSTEM_UPDATE_GITHUB_REPO / GITHUB_RELEASE_REPO
+
+.env 可选下载基地址:
+  SYSTEM_UPDATE_GITHUB_DOWNLOAD_BASE_URL
+  例如可信镜像: https://ghproxy.net/https://github.com
 USAGE
 }
 
@@ -47,6 +52,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --php-bin)
       PHP_BIN="${2:-}"
+      shift 2
+      ;;
+    --download-base-url)
+      DOWNLOAD_BASE_URL="${2:-}"
       shift 2
       ;;
     -h|--help)
@@ -338,7 +347,8 @@ github_get() {
   local output="$2"
   local accept="${3:-application/vnd.github+json}"
 
-  curl -fL --connect-timeout "$CONNECT_TIMEOUT" --max-time "$DOWNLOAD_TIMEOUT" \
+  curl -fL --retry 2 --retry-delay 3 --retry-connrefused \
+    --connect-timeout "$CONNECT_TIMEOUT" --max-time "$DOWNLOAD_TIMEOUT" \
     -H "Authorization: Bearer $GITHUB_TOKEN_VALUE" \
     -H "Accept: $accept" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -346,16 +356,59 @@ github_get() {
     -o "$output"
 }
 
-download_from_github() {
-  GITHUB_TOKEN_VALUE="$(first_env_value SYSTEM_UPDATE_GITHUB_TOKEN GITHUB_RELEASE_TOKEN GITHUB_TOKEN)"
-  if [[ -z "$GITHUB_TOKEN_VALUE" ]]; then
-    detail "GitHub token: 未找到，将改为手动上传模式。"
+download_file() {
+  local url="$1"
+  local output="$2"
+
+  curl -fL --retry 2 --retry-delay 3 --retry-connrefused \
+    --connect-timeout "$CONNECT_TIMEOUT" --max-time "$DOWNLOAD_TIMEOUT" \
+    "$url" \
+    -o "$output"
+}
+
+release_asset_url() {
+  local base_url="${1%/}"
+  local owner="$2"
+  local repo="$3"
+  local asset="$4"
+
+  printf '%s/%s/%s/releases/download/%s/%s' "$base_url" "$owner" "$repo" "$TAG" "$asset"
+}
+
+download_public_release_assets() {
+  local owner="$1"
+  local repo="$2"
+  local download_base_url="$3"
+  local package_url
+  local checksum_url
+
+  package_url="$(release_asset_url "$download_base_url" "$owner" "$repo" "$PACKAGE_NAME")"
+  checksum_url="$(release_asset_url "$download_base_url" "$owner" "$repo" "$PACKAGE_NAME.sha256")"
+
+  detail "使用公开 Release 直链下载。"
+  detail "下载基地址: $download_base_url"
+  detail "正在下载更新包: $PACKAGE_NAME"
+  if ! download_file "$package_url" "$PACKAGE_PATH"; then
+    rm -f "$PACKAGE_PATH"
     return 1
   fi
+  detail "更新包已保存: $PACKAGE_PATH ($(file_size "$PACKAGE_PATH"))"
 
+  detail "正在下载校验文件: $PACKAGE_NAME.sha256"
+  if download_file "$checksum_url" "$CHECKSUM_PATH"; then
+    detail "校验文件已保存: $CHECKSUM_PATH"
+  else
+    rm -f "$CHECKSUM_PATH"
+    detail "校验文件公开直链下载失败，将在校验阶段提示人工确认。"
+  fi
+}
+
+download_from_github() {
+  GITHUB_TOKEN_VALUE="$(first_env_value SYSTEM_UPDATE_GITHUB_TOKEN GITHUB_RELEASE_TOKEN GITHUB_TOKEN)"
   local owner
   local repo
   local api_url
+  local download_base_url
   local release_json="$WORK_DIR/release.json"
   local package_asset_id
   local checksum_asset_id
@@ -363,14 +416,30 @@ download_from_github() {
   owner="$(first_env_value SYSTEM_UPDATE_GITHUB_OWNER GITHUB_RELEASE_OWNER)"
   repo="$(first_env_value SYSTEM_UPDATE_GITHUB_REPO GITHUB_RELEASE_REPO)"
   api_url="$(first_env_value SYSTEM_UPDATE_GITHUB_API_URL GITHUB_API_URL)"
+  download_base_url="$DOWNLOAD_BASE_URL"
+  if [[ -z "$download_base_url" ]]; then
+    download_base_url="$(first_env_value SYSTEM_UPDATE_GITHUB_DOWNLOAD_BASE_URL GITHUB_DOWNLOAD_BASE_URL SYSTEM_UPDATE_DOWNLOAD_BASE_URL)"
+  fi
   owner="${owner:-$OWNER_DEFAULT}"
   repo="${repo:-$REPO_DEFAULT}"
   api_url="${api_url:-https://api.github.com}"
+  download_base_url="${download_base_url:-https://github.com}"
 
-  detail "GitHub token: 已找到（已隐藏）"
-  detail "Release 接口: $owner/$repo $TAG"
+  detail "Release 仓库: $owner/$repo $TAG"
   detail "下载超时: ${DOWNLOAD_TIMEOUT}s，连接超时: ${CONNECT_TIMEOUT}s"
 
+  if download_public_release_assets "$owner" "$repo" "$download_base_url"; then
+    return 0
+  fi
+
+  if [[ -z "$GITHUB_TOKEN_VALUE" ]]; then
+    detail "公开直链下载失败，且未找到 GitHub token，将改为手动上传模式。"
+    return 1
+  fi
+
+  detail "公开直链下载失败，尝试使用 GitHub API 下载。"
+  detail "GitHub token: 已找到（已隐藏）"
+  detail "Release 接口: $api_url/repos/$owner/$repo/releases/tags/$TAG"
   detail "正在获取 Release 元数据..."
   github_get "$api_url/repos/$owner/$repo/releases/tags/$TAG" "$release_json" || return 1
 
