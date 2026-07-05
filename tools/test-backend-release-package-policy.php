@@ -60,6 +60,7 @@ $blockedEntries = [
     'storage/app/maintenance_exports/old-export.json',
     'storage/framework/views/stale-view.php',
     'storage/logs/laravel.log',
+    'scripts/',
     'tailwind.config.js',
     'test-permissions.php',
     'tests/',
