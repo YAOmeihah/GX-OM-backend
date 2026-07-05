@@ -15,7 +15,7 @@ return new class extends Migration
         $permission = [
             'name' => '系统更新',
             'module' => 'system',
-            'description' => '检查、下载、安装和回滚系统更新',
+            'description' => '检查、上传、排队和回滚系统更新',
             'updated_at' => now(),
         ];
 

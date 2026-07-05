@@ -22,11 +22,15 @@ class SystemUpdateReleaseCheckTest extends TestCase
         Http::fake([
             'api.github.com/repos/*/releases/latest' => Http::response([
                 'tag_name' => 'v1.2.4',
+                'name' => 'GX-OM Backend v1.2.4',
+                'body' => "## 更新内容\n\n- 修复系统更新 worker",
+                'html_url' => 'https://github.com/YAOmeihah/GX-OM-backend/releases/tag/v1.2.4',
+                'published_at' => '2026-07-05T10:30:00Z',
                 'draft' => false,
                 'prerelease' => false,
                 'assets' => [
                     ['name' => 'release-manifest.json', 'browser_download_url' => 'https://example.test/release-manifest.json'],
-                    ['name' => 'gx-om-backend-v1.2.4.tar.gz', 'browser_download_url' => 'https://example.test/pkg.tar.gz'],
+                    ['name' => 'gx-om-backend-v1.2.4.tar.gz', 'browser_download_url' => 'https://example.test/pkg.tar.gz', 'size' => 123_456],
                     ['name' => 'gx-om-backend-v1.2.4.tar.gz.sha256', 'browser_download_url' => 'https://example.test/pkg.tar.gz.sha256'],
                 ],
             ]),
@@ -35,7 +39,9 @@ class SystemUpdateReleaseCheckTest extends TestCase
                 'sha256' => str_repeat('c', 64),
             ], JSON_THROW_ON_ERROR)),
             'example.test/pkg.tar.gz.sha256' => Http::response(str_repeat('c', 64).'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
-            'example.test/pkg.tar.gz' => Http::response('placeholder package'),
+            'example.test/pkg.tar.gz' => function (): void {
+                $this->fail('Checking updates must not download the release package.');
+            },
         ]);
 
         try {
@@ -51,7 +57,16 @@ class SystemUpdateReleaseCheckTest extends TestCase
             $response->assertOk();
             $response->assertJsonPath('data.current.version', '1.2.3');
             $response->assertJsonPath('data.latest.tag', 'v1.2.4');
+            $response->assertJsonPath('data.latest.release_name', 'GX-OM Backend v1.2.4');
+            $response->assertJsonPath('data.latest.body', "## 更新内容\n\n- 修复系统更新 worker");
+            $response->assertJsonPath('data.latest.html_url', 'https://github.com/YAOmeihah/GX-OM-backend/releases/tag/v1.2.4');
+            $response->assertJsonPath('data.latest.package.name', 'gx-om-backend-v1.2.4.tar.gz');
+            $response->assertJsonPath('data.latest.package.size', 123_456);
+            $response->assertJsonPath('data.latest.package.sha256', str_repeat('c', 64));
+            $response->assertJsonMissingPath('data.latest.package.download_url');
             $response->assertJsonPath('data.has_update', true);
+
+            Http::assertNotSent(fn (\Illuminate\Http\Client\Request $request): bool => $request->url() === 'https://example.test/pkg.tar.gz');
         } finally {
             if ($originalReleaseJson === null) {
                 @unlink($releaseJsonPath);

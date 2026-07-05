@@ -59,24 +59,23 @@ class GitHubReleaseClient
             'tag' => $tag,
             'version' => (string) ($manifest['version'] ?? ltrim($tag, 'v')),
             'release_name' => $manifest['release_name'] ?? ($release['name'] ?? null),
+            'body' => $release['body'] ?? null,
+            'html_url' => $release['html_url'] ?? null,
             'commit' => $manifest['commit'] ?? null,
             'build_time' => $manifest['build_time'] ?? null,
             'published_at' => $release['published_at'] ?? null,
             'prerelease' => (bool) ($release['prerelease'] ?? false),
             'package' => [
                 'name' => $packageAsset['name'],
-                'download_url' => $this->assetDownloadUrl($packageAsset),
                 'size' => $packageAsset['size'] ?? null,
                 'sha256' => $manifestSha256,
             ],
             'checksum' => [
                 'name' => $checksumAsset['name'],
-                'download_url' => $this->assetDownloadUrl($checksumAsset),
                 'sha256' => $checksumSha256,
             ],
             'manifest' => [
                 'name' => $manifestAsset['name'],
-                'download_url' => $this->assetDownloadUrl($manifestAsset),
             ],
         ];
     }

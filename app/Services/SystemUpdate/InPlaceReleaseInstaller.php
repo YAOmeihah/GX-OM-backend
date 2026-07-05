@@ -4,7 +4,6 @@ namespace App\Services\SystemUpdate;
 
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\Http;
 use RuntimeException;
 use Throwable;
 
@@ -42,23 +41,6 @@ class InPlaceReleaseInstaller
         private readonly mixed $commandRunner = null,
     ) {
         $this->files = new Filesystem;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function install(string $tag, string $downloadUrl, string $sha256, ?callable $progressReporter = null): array
-    {
-        $this->verifier->assertValidTag($tag);
-
-        $workspace = $this->workspace($tag);
-        $packagePath = $workspace['downloads'].DIRECTORY_SEPARATOR."gx-om-backend-{$tag}.tar.gz";
-        $this->ensureWorkspaceDirectories($workspace);
-
-        $this->reportProgress($progressReporter, 'downloading', 'Downloading release package.');
-        $this->downloadPackage($downloadUrl, $packagePath);
-
-        return $this->installPreparedPackage($tag, $packagePath, $sha256, $workspace, $progressReporter);
     }
 
     /**
@@ -184,28 +166,6 @@ class InPlaceReleaseInstaller
         $this->ensureDirectory($workspace['staging']);
         $this->ensureDirectory($workspace['backups']);
         $this->ensureDirectory($workspace['runs']);
-    }
-
-    private function downloadPackage(string $downloadUrl, string $packagePath): void
-    {
-        $request = Http::timeout(120)->retry(3, 1000);
-        $token = trim((string) config('system_update.github.token', ''));
-
-        if (str_starts_with($downloadUrl, 'https://api.github.com/')) {
-            $request = $request->withHeaders([
-                'Accept' => 'application/octet-stream',
-            ])->withOptions([
-                'version' => 1.1,
-            ]);
-
-            if ($token !== '') {
-                $request = $request->withToken($token);
-            }
-        }
-
-        $response = $request->get($downloadUrl)->throw();
-
-        file_put_contents($packagePath, $response->body());
     }
 
     private function extractArchive(string $packagePath, string $stagingPath): void

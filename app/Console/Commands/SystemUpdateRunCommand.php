@@ -23,7 +23,7 @@ class SystemUpdateRunCommand extends Command
             return self::FAILURE;
         }
 
-        if (! in_array($run->status, ['pending', 'failed', 'running'], true)) {
+        if (! in_array($run->status, ['pending', 'uploaded', 'queued', 'failed', 'running'], true)) {
             $this->error("System update run is not installable from status [{$run->status}].");
 
             return self::FAILURE;
@@ -42,7 +42,7 @@ class SystemUpdateRunCommand extends Command
         }
 
         try {
-            $systemUpdateService->installUploadedPackageNow($run);
+            $systemUpdateService->executeRun($run, true);
 
             $this->info('System update install completed.');
 

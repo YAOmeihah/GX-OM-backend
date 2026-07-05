@@ -32,29 +32,22 @@ class SystemUpdateController extends ApiController
         return $this->successResponse($environmentPreflight->check());
     }
 
-    public function install(Request $request, SystemUpdateService $systemUpdateService): \Illuminate\Http\JsonResponse
+    public function install(): \Illuminate\Http\JsonResponse
     {
-        $payload = $request->validate([
-            'tag' => ['required', 'string', 'regex:/^v\d+\.\d+\.\d+$/'],
-            'sha256' => ['required', 'string', 'regex:/^[A-Fa-f0-9]{64}$/'],
-            'confirmed' => ['accepted'],
+        return $this->errorResponse('Online download and install has been removed. Upload a release package and run the CLI worker.', 410, [
+            'replacement' => [
+                'upload' => '/api/system-updates/uploads',
+                'queue' => '/api/system-updates/runs/{run}/queue',
+                'worker' => 'php artisan system-update:worker --once',
+            ],
         ]);
-
-        try {
-            return $this->successResponse($systemUpdateService->install($payload), 'System update install started.', 202);
-        } catch (SystemUpdateEnvironmentNotReadyException $exception) {
-            return $this->errorResponse('System update environment is not ready.', 412, [
-                'preflight' => $exception->report(),
-            ]);
-        }
     }
 
-    public function installUpload(Request $request, SystemUpdateService $systemUpdateService): \Illuminate\Http\JsonResponse
+    public function upload(Request $request, SystemUpdateService $systemUpdateService): \Illuminate\Http\JsonResponse
     {
         $payload = $request->validate([
             'tag' => ['required', 'string', 'regex:/^v\d+\.\d+\.\d+$/'],
             'sha256' => ['required', 'string', 'regex:/^[A-Fa-f0-9]{64}$/'],
-            'confirmed' => ['accepted'],
             'package' => ['required', 'file'],
         ]);
         $package = $request->file('package');
@@ -65,7 +58,7 @@ class SystemUpdateController extends ApiController
 
         try {
             return $this->successResponse(
-                $systemUpdateService->queueUploadedPackage($payload, $package),
+                $systemUpdateService->createUploadedPackageRun($payload, $package),
                 'System update package uploaded.',
                 202
             );
@@ -94,19 +87,14 @@ class SystemUpdateController extends ApiController
         return $this->successResponse($run->toArray());
     }
 
-    public function installRun(
-        Request $request,
+    public function queueRun(
         SystemUpdateRun $run,
         SystemUpdateService $systemUpdateService
     ): \Illuminate\Http\JsonResponse {
-        $request->validate([
-            'confirmed' => ['accepted'],
-        ]);
-
         try {
             return $this->successResponse(
-                $systemUpdateService->installUploadedPackage($run),
-                'System update install started.',
+                $systemUpdateService->queueRun($run),
+                'System update run queued for CLI worker.',
                 202
             );
         } catch (SystemUpdateEnvironmentNotReadyException $exception) {
@@ -116,6 +104,16 @@ class SystemUpdateController extends ApiController
         } catch (UnexpectedValueException $exception) {
             return $this->errorResponse($exception->getMessage(), 422);
         }
+    }
+
+    public function installRun(): \Illuminate\Http\JsonResponse
+    {
+        return $this->errorResponse('HTTP install execution has been removed. Queue the run and execute php artisan system-update:worker --once from CLI.', 410, [
+            'replacement' => [
+                'queue' => '/api/system-updates/runs/{run}/queue',
+                'worker' => 'php artisan system-update:worker --once',
+            ],
+        ]);
     }
 
     public function rollback(Request $request, InPlaceReleaseInstaller $installer): \Illuminate\Http\JsonResponse

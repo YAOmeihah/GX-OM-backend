@@ -34,6 +34,28 @@ class ReleasePackageVerifierTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
+    public function test_verifier_scans_large_archives_without_fully_decompressing_into_memory(): void
+    {
+        $archivePath = $this->fixturePath('large-safe.tar.gz');
+        $this->writeLargeGzipTar($archivePath, [
+            ...$this->requiredArchiveEntries(),
+            'public/assets/large.bin' => 80 * 1024 * 1024,
+        ]);
+
+        $verifier = new ReleasePackageVerifier;
+        $before = memory_get_usage(true);
+
+        $verifier->assertSafeArchive($archivePath);
+
+        $memoryDelta = memory_get_peak_usage(true) - $before;
+
+        $this->assertLessThan(
+            16 * 1024 * 1024,
+            $memoryDelta,
+            'Release archive verification should stream tar entries instead of loading the full decompressed archive.'
+        );
+    }
+
     public function test_verifier_rejects_invalid_release_tag(): void
     {
         $verifier = new ReleasePackageVerifier;
@@ -230,6 +252,46 @@ class ReleasePackageVerifierTest extends TestCase
         $tar .= str_repeat("\0", 1024);
 
         file_put_contents($path, gzencode($tar));
+    }
+
+    /**
+     * @param  array<string, int|string>  $entries
+     */
+    private function writeLargeGzipTar(string $path, array $entries): void
+    {
+        $handle = gzopen($path, 'wb9');
+
+        if ($handle === false) {
+            throw new \RuntimeException('Unable to create gzip tar fixture.');
+        }
+
+        try {
+            foreach ($entries as $name => $contents) {
+                if (is_int($contents)) {
+                    gzwrite($handle, $this->tarHeader($name, $contents));
+
+                    $remaining = $contents;
+                    $chunk = str_repeat("\0", 1024 * 1024);
+
+                    while ($remaining > 0) {
+                        $bytes = min($remaining, strlen($chunk));
+                        gzwrite($handle, substr($chunk, 0, $bytes));
+                        $remaining -= $bytes;
+                    }
+
+                    gzwrite($handle, str_repeat("\0", (512 - $contents % 512) % 512));
+
+                    continue;
+                }
+
+                gzwrite($handle, $this->tarHeader($name, strlen($contents)));
+                gzwrite($handle, $contents.str_repeat("\0", (512 - strlen($contents) % 512) % 512));
+            }
+
+            gzwrite($handle, str_repeat("\0", 1024));
+        } finally {
+            gzclose($handle);
+        }
     }
 
     private function tarHeader(string $name, int $size, string $type = '0', string $linkname = ''): string

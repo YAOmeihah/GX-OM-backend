@@ -17,6 +17,12 @@ class SystemUpdateApiTest extends TestCase
     public function test_system_update_routes_require_manage_permission(): void
     {
         $this->actingAs($this->storeStaff());
+        $run = SystemUpdateRun::query()->create([
+            'tag' => 'v1.2.4',
+            'version' => '1.2.4',
+            'status' => 'uploaded',
+            'step' => 'uploaded',
+        ]);
 
         $this->getJson('/api/system-updates/current')->assertForbidden();
         $this->getJson('/api/system-updates/check')->assertForbidden();
@@ -26,12 +32,12 @@ class SystemUpdateApiTest extends TestCase
             'sha256' => str_repeat('a', 64),
             'confirmed' => true,
         ])->assertForbidden();
-        $this->postJson('/api/system-updates/install-upload', [
+        $this->postJson('/api/system-updates/uploads', [
             'tag' => 'v1.2.4',
             'sha256' => str_repeat('a', 64),
-            'confirmed' => true,
         ])->assertForbidden();
         $this->getJson('/api/system-updates/runs')->assertForbidden();
+        $this->postJson("/api/system-updates/runs/{$run->id}/queue")->assertForbidden();
         $this->postJson('/api/system-updates/rollback', [
             'run_id' => 1,
         ])->assertForbidden();
@@ -49,7 +55,7 @@ class SystemUpdateApiTest extends TestCase
             'version' => '1.2.4',
             'status' => 'completed',
             'step' => 'completed',
-            'metadata' => ['download_url' => 'https://example.test/gx-om-backend-v1.2.4.tar.gz'],
+            'metadata' => ['source' => 'upload', 'package_name' => 'gx-om-backend-v1.2.4.tar.gz'],
             'log_lines' => ['Started system update install.', 'System update install completed.'],
             'backup_path' => '/tmp/backups/v1.2.4',
             'package_path' => '/tmp/downloads/gx-om-backend-v1.2.4.tar.gz',
@@ -69,6 +75,9 @@ class SystemUpdateApiTest extends TestCase
             \Illuminate\Support\Facades\Http::fake([
                 'api.github.com/repos/*/releases/latest' => \Illuminate\Support\Facades\Http::response([
                     'tag_name' => 'v1.2.4',
+                    'name' => 'GX-OM Backend v1.2.4',
+                    'body' => 'Release notes',
+                    'html_url' => 'https://github.com/YAOmeihah/GX-OM-backend/releases/tag/v1.2.4',
                     'draft' => false,
                     'prerelease' => false,
                     'assets' => [
@@ -98,6 +107,8 @@ class SystemUpdateApiTest extends TestCase
             $this->getJson('/api/system-updates/check')
                 ->assertOk()
                 ->assertJsonPath('data.latest.tag', 'v1.2.4')
+                ->assertJsonPath('data.latest.html_url', 'https://github.com/YAOmeihah/GX-OM-backend/releases/tag/v1.2.4')
+                ->assertJsonMissingPath('data.latest.package.download_url')
                 ->assertJsonPath('data.has_update', true);
 
             $this->getJson('/api/system-updates/preflight')
@@ -201,7 +212,7 @@ class SystemUpdateApiTest extends TestCase
         ], [
             'name' => '系统更新',
             'module' => 'system',
-            'description' => '检查、下载、安装和回滚系统更新',
+            'description' => '检查、上传、排队和回滚系统更新',
         ]);
 
         $adminRole->permissions()->syncWithoutDetaching([$permission->id]);

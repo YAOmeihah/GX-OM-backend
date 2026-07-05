@@ -7,15 +7,12 @@ use App\Models\SystemUpdateRun;
 use App\Models\User;
 use App\Services\SystemUpdate\InPlaceReleaseInstaller;
 use App\Services\SystemUpdate\ReleasePackageVerifier;
-use App\Services\SystemUpdate\SystemUpdateDeferredRunner;
-use App\Services\SystemUpdate\SystemUpdateProcessStarter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
-use Mockery;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -23,25 +20,60 @@ class SystemUpdateInstallTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_upload_install_stores_uploaded_release_package_without_starting_background_process(): void
+    public function test_online_install_endpoint_is_retired(): void
     {
-        Storage::fake();
+        $this->actingAsAdmin();
+        Http::fake();
+
+        $this->postJson('/api/system-updates/install', [
+            'tag' => 'v1.2.4',
+            'sha256' => str_repeat('a', 64),
+            'confirmed' => true,
+        ])
+            ->assertStatus(410)
+            ->assertJsonPath('success', false);
+
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('system_update_runs', 0);
+    }
+
+    public function test_upload_package_sha256_mismatch_is_rejected(): void
+    {
+        $packagePath = $this->fixturePath('sha-mismatch.tar.gz');
+        $this->writeValidReleasePackage($packagePath);
+        $this->actingAsAdmin();
+
+        $this->post('/api/system-updates/uploads', [
+            'tag' => 'v1.2.4',
+            'sha256' => str_repeat('0', 64),
+            'package' => new UploadedFile(
+                $packagePath,
+                'gx-om-backend-v1.2.4.tar.gz',
+                'application/gzip',
+                null,
+                true
+            ),
+        ], ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'Uploaded release package SHA256 mismatch.');
+
+        $this->assertDatabaseCount('system_update_runs', 0);
+    }
+
+    public function test_upload_package_creates_uploaded_run_without_installing(): void
+    {
         $packagePath = $this->fixturePath('uploaded-release.tar.gz');
         $sha256 = $this->writeValidReleasePackage($packagePath);
 
-        Http::fake();
-
-        $this->mock(SystemUpdateProcessStarter::class, function ($mock): void {
-            $mock->shouldReceive('start')
-                ->never();
+        $this->mock(InPlaceReleaseInstaller::class, function ($mock): void {
+            $mock->shouldReceive('installFromPackage')->never();
         });
 
         $admin = $this->actingAsAdmin();
 
-        $response = $this->post('/api/system-updates/install-upload', [
+        $response = $this->post('/api/system-updates/uploads', [
             'tag' => 'v1.2.4',
             'sha256' => $sha256,
-            'confirmed' => '1',
             'package' => new UploadedFile(
                 $packagePath,
                 'gx-om-backend-v1.2.4.tar.gz',
@@ -52,32 +84,61 @@ class SystemUpdateInstallTest extends TestCase
         ], ['Accept' => 'application/json']);
 
         $response->assertAccepted()
-            ->assertJsonPath('data.status', 'pending')
+            ->assertJsonPath('data.status', 'uploaded')
             ->assertJsonPath('data.step', 'uploaded');
 
         $run = SystemUpdateRun::query()->latest('id')->firstOrFail();
         $this->assertSame($admin->id, $run->actor_user_id);
         $this->assertSame('v1.2.4', $run->tag);
         $this->assertSame('1.2.4', $run->version);
-        $this->assertSame('pending', $run->status);
+        $this->assertSame('uploaded', $run->status);
         $this->assertSame('uploaded', $run->step);
         $this->assertSame($sha256, $run->package_sha256);
         $this->assertSame('upload', $run->metadata['source']);
         $this->assertSame('gx-om-backend-v1.2.4.tar.gz', $run->metadata['package_name']);
         $this->assertFileExists((string) $run->package_path);
         $this->assertSame($sha256, hash_file('sha256', (string) $run->package_path));
-
-        Http::assertNothingSent();
     }
 
-    public function test_start_uploaded_install_endpoint_defers_pending_package_install_until_after_response(): void
+    public function test_queue_uploaded_run_only_marks_it_for_cli_worker(): void
     {
-        Storage::fake();
-        $root = $this->fixtureDeploymentRoot('uploaded-endpoint');
-        $packagePath = $this->fixturePath('uploaded-endpoint-release.tar.gz');
+        $packagePath = $this->fixturePath('queue-only.tar.gz');
+        $sha256 = $this->writeValidReleasePackage($packagePath);
+        $this->actingAsAdmin();
+
+        $this->mock(InPlaceReleaseInstaller::class, function ($mock): void {
+            $mock->shouldReceive('installFromPackage')->never();
+        });
+
+        $run = SystemUpdateRun::query()->create([
+            'tag' => 'v1.2.4',
+            'version' => '1.2.4',
+            'status' => 'uploaded',
+            'step' => 'uploaded',
+            'metadata' => ['source' => 'upload', 'package_name' => 'gx-om-backend-v1.2.4.tar.gz'],
+            'log_lines' => ['Uploaded release package.'],
+            'package_path' => $packagePath,
+            'package_sha256' => $sha256,
+        ]);
+
+        $this->postJson("/api/system-updates/runs/{$run->id}/queue")
+            ->assertAccepted()
+            ->assertJsonPath('data.run_id', $run->id)
+            ->assertJsonPath('data.status', 'queued')
+            ->assertJsonPath('data.step', 'queued');
+
+        $run->refresh();
+        $this->assertSame('queued', $run->status);
+        $this->assertSame('queued', $run->step);
+        $this->assertContains('Queued for CLI system update worker.', $run->log_lines);
+    }
+
+    public function test_worker_once_installs_a_queued_uploaded_package(): void
+    {
+        $root = $this->fixtureDeploymentRoot('worker-success');
+        $packagePath = $this->fixturePath('worker-success.tar.gz');
         $sha256 = $this->writeValidReleasePackage($packagePath);
         $commands = [];
-        $deferredTasks = [];
 
         $this->writeDeploymentRoot($root, [
             '.env' => 'APP_KEY=existing',
@@ -91,49 +152,12 @@ class SystemUpdateInstallTest extends TestCase
         $this->bindInstallerForRoot($root, function (string $command) use (&$commands): void {
             $commands[] = $command;
         });
-        $this->mock(SystemUpdateDeferredRunner::class, function ($mock) use (&$deferredTasks): void {
-            $mock->shouldReceive('afterResponse')
-                ->once()
-                ->with(Mockery::on(function (callable $task) use (&$deferredTasks): bool {
-                    $deferredTasks[] = $task;
 
-                    return true;
-                }));
-        });
-        $admin = $this->actingAsAdmin();
+        $run = $this->createQueuedRun($packagePath, $sha256);
 
-        $run = SystemUpdateRun::query()->create([
-            'actor_user_id' => $admin->id,
-            'tag' => 'v1.2.4',
-            'version' => '1.2.4',
-            'status' => 'pending',
-            'step' => 'uploaded',
-            'metadata' => ['source' => 'upload', 'package_name' => 'gx-om-backend-v1.2.4.tar.gz'],
-            'log_lines' => ['Uploaded release package.'],
-            'package_path' => $packagePath,
-            'package_sha256' => $sha256,
-            'started_at' => now(),
-        ]);
+        $exitCode = Artisan::call('system-update:worker', ['--once' => true]);
 
-        $response = $this->postJson("/api/system-updates/runs/{$run->id}/install", [
-            'confirmed' => true,
-        ]);
-
-        $response->assertAccepted()
-            ->assertJsonPath('data.run_id', $run->id)
-            ->assertJsonPath('data.status', 'running')
-            ->assertJsonPath('data.step', 'installing');
-
-        $this->assertSame('old service', file_get_contents($root.'/app/Services/Existing.php'));
-        $this->assertSame([], $commands);
-
-        $run->refresh();
-        $this->assertSame('running', $run->status);
-        $this->assertSame('installing', $run->step);
-        $this->assertCount(1, $deferredTasks);
-
-        $deferredTasks[0]();
-
+        $this->assertSame(0, $exitCode, Artisan::output());
         $this->assertSame('new service', file_get_contents($root.'/app/Services/Existing.php'));
         $this->assertSame('local runtime', file_get_contents($root.'/storage/app/runtime.txt'));
         $this->assertSame('linked upload', file_get_contents($root.'/public/storage/upload.txt'));
@@ -149,78 +173,36 @@ class SystemUpdateInstallTest extends TestCase
         $this->assertSame('completed', $run->status);
         $this->assertSame('completed', $run->step);
         $this->assertNotNull($run->backup_path);
-        $this->assertContains('Started uploaded release package install.', $run->log_lines);
-        $this->assertContains('Uploaded release package install completed.', $run->log_lines);
-        $this->assertContains('Replacing managed application files.', $run->log_lines);
-    }
-
-    public function test_http_lifecycle_runs_deferred_uploaded_install_after_returning_running_response(): void
-    {
-        Storage::fake();
-        $root = $this->fixtureDeploymentRoot('uploaded-http-lifecycle');
-        $packagePath = $this->fixturePath('uploaded-http-lifecycle-release.tar.gz');
-        $sha256 = $this->writeValidReleasePackage($packagePath);
-        $commands = [];
-
-        $this->writeDeploymentRoot($root, [
-            '.env' => 'APP_KEY=existing',
-            'storage/app/runtime.txt' => 'local runtime',
-            'public/storage/upload.txt' => 'linked upload',
-            'app/Services/Existing.php' => 'old service',
-            'public/index.php' => 'old public index',
-            'release.json' => '{"version":"1.2.3"}',
-        ]);
-
-        $this->bindInstallerForRoot($root, function (string $command) use (&$commands): void {
-            $commands[] = $command;
-        });
-        $admin = $this->actingAsAdmin();
-
-        $run = SystemUpdateRun::query()->create([
-            'actor_user_id' => $admin->id,
-            'tag' => 'v1.2.4',
-            'version' => '1.2.4',
-            'status' => 'pending',
-            'step' => 'uploaded',
-            'metadata' => ['source' => 'upload', 'package_name' => 'gx-om-backend-v1.2.4.tar.gz'],
-            'log_lines' => ['Uploaded release package.'],
-            'package_path' => $packagePath,
-            'package_sha256' => $sha256,
-            'started_at' => now(),
-        ]);
-
-        $response = $this->postJson("/api/system-updates/runs/{$run->id}/install", [
-            'confirmed' => true,
-        ]);
-
-        $response->assertAccepted()
-            ->assertJsonPath('data.run_id', $run->id)
-            ->assertJsonPath('data.status', 'running')
-            ->assertJsonPath('data.step', 'installing');
-
-        $this->assertSame('new service', file_get_contents($root.'/app/Services/Existing.php'));
-        $this->assertSame([
-            'down',
-            'migrate --force',
-            'optimize:clear',
-            'storage:link --force',
-            'up',
-        ], $commands);
-
-        $run->refresh();
-        $this->assertSame('completed', $run->status);
-        $this->assertSame('completed', $run->step);
         $this->assertContains('Verifying release package.', $run->log_lines);
+        $this->assertContains('Replacing managed application files.', $run->log_lines);
         $this->assertContains('Uploaded release package install completed.', $run->log_lines);
     }
 
-    public function test_http_lifecycle_records_deferred_uploaded_install_failure_after_running_response(): void
+    public function test_worker_lock_prevents_concurrent_installation(): void
     {
-        Storage::fake();
-        $root = $this->fixtureDeploymentRoot('uploaded-http-failure');
-        $packagePath = $this->fixturePath('uploaded-http-failure-release.tar.gz');
+        $packagePath = $this->fixturePath('locked-worker.tar.gz');
         $sha256 = $this->writeValidReleasePackage($packagePath);
-        $commands = [];
+        $run = $this->createQueuedRun($packagePath, $sha256);
+        $lock = Cache::lock('system-update:worker', 600);
+
+        $this->assertTrue($lock->get());
+
+        try {
+            $exitCode = Artisan::call('system-update:worker', ['--once' => true]);
+        } finally {
+            $lock->release();
+        }
+
+        $this->assertSame(0, $exitCode, Artisan::output());
+        $run->refresh();
+        $this->assertSame('queued', $run->status);
+    }
+
+    public function test_worker_failure_marks_run_failed_with_error_message(): void
+    {
+        $root = $this->fixtureDeploymentRoot('worker-failure');
+        $packagePath = $this->fixturePath('worker-failure.tar.gz');
+        $sha256 = $this->writeValidReleasePackage($packagePath);
 
         $this->writeDeploymentRoot($root, [
             '.env' => 'APP_KEY=existing',
@@ -231,503 +213,54 @@ class SystemUpdateInstallTest extends TestCase
             'release.json' => '{"version":"1.2.3"}',
         ]);
 
-        $this->bindInstallerForRoot($root, function (string $command) use (&$commands): void {
-            $commands[] = $command;
-
+        $this->bindInstallerForRoot($root, function (string $command): void {
             if ($command === 'migrate --force') {
                 throw new RuntimeException('Migration failed.');
             }
         });
-        $admin = $this->actingAsAdmin();
 
-        $run = SystemUpdateRun::query()->create([
-            'actor_user_id' => $admin->id,
-            'tag' => 'v1.2.4',
-            'version' => '1.2.4',
-            'status' => 'pending',
-            'step' => 'uploaded',
-            'metadata' => ['source' => 'upload', 'package_name' => 'gx-om-backend-v1.2.4.tar.gz'],
-            'log_lines' => ['Uploaded release package.'],
-            'package_path' => $packagePath,
-            'package_sha256' => $sha256,
-            'started_at' => now(),
-        ]);
+        $run = $this->createQueuedRun($packagePath, $sha256);
 
-        $response = $this->postJson("/api/system-updates/runs/{$run->id}/install", [
-            'confirmed' => true,
-        ]);
+        $exitCode = Artisan::call('system-update:worker', ['--once' => true]);
 
-        $response->assertAccepted()
-            ->assertJsonPath('data.run_id', $run->id)
-            ->assertJsonPath('data.status', 'running')
-            ->assertJsonPath('data.step', 'installing');
-
+        $this->assertSame(1, $exitCode, Artisan::output());
         $this->assertSame('old service', file_get_contents($root.'/app/Services/Existing.php'));
-        $this->assertSame(['down', 'migrate --force', 'up'], $commands);
 
         $run->refresh();
         $this->assertSame('failed', $run->status);
         $this->assertSame('rolled_back', $run->step);
         $this->assertSame('Migration failed.', $run->error_message);
+        $this->assertNotNull($run->finished_at);
         $this->assertContains('Install failed; restoring backup.', $run->log_lines);
-        $this->assertContains('Uploaded release package install failed; rollback attempted.', $run->log_lines);
     }
 
-    public function test_stale_running_uploaded_install_can_be_restarted_from_api(): void
+    public function test_worker_marks_stale_running_run_failed_before_claiming_work(): void
     {
-        Storage::fake();
-        $root = $this->fixtureDeploymentRoot('uploaded-stale-running');
-        $packagePath = $this->fixturePath('uploaded-stale-running-release.tar.gz');
-        $sha256 = $this->writeValidReleasePackage($packagePath);
-
         config()->set('system_update.stale_run_minutes', 10);
 
-        $this->writeDeploymentRoot($root, [
-            '.env' => 'APP_KEY=existing',
-            'storage/app/runtime.txt' => 'local runtime',
-            'public/storage/upload.txt' => 'linked upload',
-            'app/Services/Existing.php' => 'old service',
-            'public/index.php' => 'old public index',
-            'release.json' => '{"version":"1.2.3"}',
-        ]);
-
-        $this->bindInstallerForRoot($root);
-        $admin = $this->actingAsAdmin();
-
         $run = SystemUpdateRun::query()->create([
-            'actor_user_id' => $admin->id,
             'tag' => 'v1.2.4',
             'version' => '1.2.4',
             'status' => 'running',
             'step' => 'verifying',
             'metadata' => ['source' => 'upload', 'package_name' => 'gx-om-backend-v1.2.4.tar.gz'],
             'log_lines' => ['Started uploaded release package install.', 'Verifying release package.'],
-            'package_path' => $packagePath,
-            'package_sha256' => $sha256,
+            'package_path' => $this->fixturePath('stale-running.tar.gz'),
+            'package_sha256' => str_repeat('a', 64),
             'started_at' => now()->subMinutes(15),
         ]);
         $run->timestamps = false;
         $run->updated_at = now()->subMinutes(15);
         $run->save();
 
-        $response = $this->postJson("/api/system-updates/runs/{$run->id}/install", [
-            'confirmed' => true,
-        ]);
+        $exitCode = Artisan::call('system-update:worker', ['--once' => true]);
 
-        $response->assertAccepted()
-            ->assertJsonPath('data.run_id', $run->id)
-            ->assertJsonPath('data.status', 'running')
-            ->assertJsonPath('data.step', 'installing');
-
-        $this->assertSame('new service', file_get_contents($root.'/app/Services/Existing.php'));
-
+        $this->assertSame(0, $exitCode, Artisan::output());
         $run->refresh();
-        $this->assertSame('completed', $run->status);
-        $this->assertSame('completed', $run->step);
-        $this->assertContains('Started uploaded release package install.', $run->log_lines);
-        $this->assertContains('Uploaded release package install completed.', $run->log_lines);
-    }
-
-    public function test_artisan_system_update_run_installs_queued_uploaded_package(): void
-    {
-        Storage::fake();
-        $root = $this->fixtureDeploymentRoot('uploaded-command');
-        $packagePath = $this->fixturePath('uploaded-command-release.tar.gz');
-        $sha256 = $this->writeValidReleasePackage($packagePath);
-        $commands = [];
-
-        $this->writeDeploymentRoot($root, [
-            '.env' => 'APP_KEY=existing',
-            'storage/app/runtime.txt' => 'local runtime',
-            'public/storage/upload.txt' => 'linked upload',
-            'app/Services/Existing.php' => 'old service',
-            'public/index.php' => 'old public index',
-            'release.json' => '{"version":"1.2.3"}',
-        ]);
-
-        $this->bindInstallerForRoot($root, function (string $command) use (&$commands): void {
-            $commands[] = $command;
-        });
-
-        $run = SystemUpdateRun::query()->create([
-            'tag' => 'v1.2.4',
-            'version' => '1.2.4',
-            'status' => 'pending',
-            'step' => 'uploaded',
-            'metadata' => ['source' => 'upload', 'package_name' => 'gx-om-backend-v1.2.4.tar.gz'],
-            'log_lines' => ['Uploaded release package.'],
-            'package_path' => $packagePath,
-            'package_sha256' => $sha256,
-            'started_at' => now(),
-        ]);
-
-        $exitCode = Artisan::call('system-update:run', ['run' => $run->id]);
-
-        $this->assertSame(0, $exitCode);
-        $this->assertSame('new service', file_get_contents($root.'/app/Services/Existing.php'));
-        $this->assertSame('local runtime', file_get_contents($root.'/storage/app/runtime.txt'));
-        $this->assertSame('linked upload', file_get_contents($root.'/public/storage/upload.txt'));
-        $this->assertSame([
-            'down',
-            'migrate --force',
-            'optimize:clear',
-            'storage:link --force',
-            'up',
-        ], $commands);
-
-        $run->refresh();
-        $this->assertSame('completed', $run->status);
-        $this->assertSame('completed', $run->step);
-        $this->assertNotNull($run->backup_path);
-        $this->assertContains('Uploaded release package install completed.', $run->log_lines);
-    }
-
-    public function test_install_preserves_env_storage_and_public_storage(): void
-    {
-        Storage::fake();
-        $root = $this->fixtureDeploymentRoot('preserve');
-        $packagePath = $this->fixturePath('preserve-release.tar.gz');
-        $commands = [];
-
-        $this->writeDeploymentRoot($root, [
-            '.env' => 'APP_KEY=existing',
-            'storage/app/runtime.txt' => 'local runtime',
-            'public/storage/upload.txt' => 'linked upload',
-            'app/Services/Existing.php' => 'old service',
-            'public/index.php' => 'old public index',
-            'public/old.txt' => 'stale public file',
-            'release.json' => '{"version":"1.2.3"}',
-        ]);
-
-        $this->writeGzipTar($packagePath, [
-            '.env.example' => 'APP_KEY=',
-            'app/Services/Existing.php' => 'new service',
-            'bootstrap/app.php' => '<?php',
-            'config/app.php' => '<?php return [];',
-            'database/migrations/example.php' => '<?php',
-            'public/index.php' => 'new public index',
-            'resources/views/.gitkeep' => '',
-            'routes/api.php' => '<?php',
-            'vendor/autoload.php' => '<?php',
-            'artisan' => '#!/usr/bin/env php',
-            'composer.lock' => '{}',
-            'release.json' => '{"version":"1.2.4","tag":"v1.2.4"}',
-        ]);
-
-        Http::fake([
-            'api.github.com/repos/*/releases/latest' => Http::response([
-                'tag_name' => 'v1.2.4',
-                'draft' => false,
-                'prerelease' => false,
-                'assets' => [
-                    ['name' => 'release-manifest.json', 'browser_download_url' => 'https://example.test/release-manifest.json'],
-                    ['name' => 'gx-om-backend-v1.2.4.tar.gz', 'browser_download_url' => 'https://example.test/gx-om-backend-v1.2.4.tar.gz'],
-                    ['name' => 'gx-om-backend-v1.2.4.tar.gz.sha256', 'browser_download_url' => 'https://example.test/pkg.tar.gz.sha256'],
-                ],
-            ]),
-            'example.test/release-manifest.json' => Http::response(json_encode([
-                'version' => '1.2.4',
-                'sha256' => hash_file('sha256', $packagePath),
-            ], JSON_THROW_ON_ERROR)),
-            'example.test/pkg.tar.gz.sha256' => Http::response(hash_file('sha256', $packagePath).'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
-            'example.test/gx-om-backend-v1.2.4.tar.gz' => Http::response(file_get_contents($packagePath)),
-        ]);
-
-        $this->bindInstallerForRoot($root, function (string $command) use (&$commands): void {
-            $commands[] = $command;
-        });
-        $admin = $this->actingAsAdmin();
-        $deferredTasks = [];
-        $this->captureDeferredTasks($deferredTasks);
-
-        $response = $this->postJson('/api/system-updates/install', [
-            'tag' => 'v1.2.4',
-            'sha256' => hash_file('sha256', $packagePath),
-            'confirmed' => true,
-        ]);
-
-        $response->assertAccepted()
-            ->assertJsonPath('data.status', 'running')
-            ->assertJsonPath('data.step', 'installing');
-        $this->assertSame('old service', file_get_contents($root.'/app/Services/Existing.php'));
-        $this->assertCount(1, $deferredTasks);
-
-        $deferredTasks[0]();
-
-        $this->assertSame('APP_KEY=existing', file_get_contents($root.'/.env'));
-        $this->assertSame('local runtime', file_get_contents($root.'/storage/app/runtime.txt'));
-        $this->assertSame('linked upload', file_get_contents($root.'/public/storage/upload.txt'));
-        $this->assertSame('new service', file_get_contents($root.'/app/Services/Existing.php'));
-        $this->assertSame('new public index', file_get_contents($root.'/public/index.php'));
-        $this->assertFileDoesNotExist($root.'/public/old.txt');
-        $this->assertSame([
-            'down',
-            'migrate --force',
-            'optimize:clear',
-            'storage:link --force',
-            'up',
-        ], $commands);
-        $this->assertDatabaseHas('system_update_runs', [
-            'actor_user_id' => $admin->id,
-            'tag' => 'v1.2.4',
-            'version' => '1.2.4',
-            'status' => 'completed',
-            'package_sha256' => hash_file('sha256', $packagePath),
-        ]);
-    }
-
-    public function test_install_ignores_client_download_url_and_uses_trusted_release_asset(): void
-    {
-        Storage::fake();
-        $root = $this->fixtureDeploymentRoot('trusted-download');
-        $trustedPackagePath = $this->fixturePath('trusted-release.tar.gz');
-        $trustedDownloadUrl = 'https://example.test/releases/gx-om-backend-v1.2.4.tar.gz';
-        $maliciousDownloadUrl = 'https://evil.test/gx-om-backend-v1.2.4.tar.gz';
-
-        $this->writeDeploymentRoot($root, [
-            '.env' => 'APP_KEY=existing',
-            'storage/app/runtime.txt' => 'local runtime',
-            'public/storage/upload.txt' => 'linked upload',
-            'app/Services/Existing.php' => 'old service',
-            'public/index.php' => 'old public index',
-            'release.json' => '{"version":"1.2.3"}',
-        ]);
-
-        $this->writeGzipTar($trustedPackagePath, [
-            '.env.example' => 'APP_KEY=',
-            'app/Services/Existing.php' => 'new service',
-            'bootstrap/app.php' => '<?php',
-            'config/app.php' => '<?php return [];',
-            'database/migrations/example.php' => '<?php',
-            'public/index.php' => 'new public index',
-            'resources/views/.gitkeep' => '',
-            'routes/api.php' => '<?php',
-            'vendor/autoload.php' => '<?php',
-            'artisan' => '#!/usr/bin/env php',
-            'composer.lock' => '{}',
-            'release.json' => '{"version":"1.2.4","tag":"v1.2.4"}',
-        ]);
-
-        Http::fake([
-            'api.github.com/repos/*/releases/latest' => Http::response([
-                'tag_name' => 'v1.2.4',
-                'draft' => false,
-                'prerelease' => false,
-                'assets' => [
-                    ['name' => 'release-manifest.json', 'browser_download_url' => 'https://example.test/release-manifest.json'],
-                    ['name' => 'gx-om-backend-v1.2.4.tar.gz', 'browser_download_url' => $trustedDownloadUrl],
-                    ['name' => 'gx-om-backend-v1.2.4.tar.gz.sha256', 'browser_download_url' => 'https://example.test/pkg.tar.gz.sha256'],
-                ],
-            ]),
-            'example.test/release-manifest.json' => Http::response(json_encode([
-                'version' => '1.2.4',
-                'sha256' => hash_file('sha256', $trustedPackagePath),
-            ], JSON_THROW_ON_ERROR)),
-            'example.test/pkg.tar.gz.sha256' => Http::response(hash_file('sha256', $trustedPackagePath).'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
-            $trustedDownloadUrl => Http::response(file_get_contents($trustedPackagePath)),
-            'evil.test/*' => Http::response('this should not be fetched'),
-        ]);
-
-        $this->bindInstallerForRoot($root);
-        $admin = $this->actingAsAdmin();
-        $deferredTasks = [];
-        $this->captureDeferredTasks($deferredTasks);
-
-        $response = $this->postJson('/api/system-updates/install', [
-            'tag' => 'v1.2.4',
-            'sha256' => hash_file('sha256', $trustedPackagePath),
-            'download_url' => $maliciousDownloadUrl,
-            'confirmed' => true,
-        ]);
-
-        $response->assertAccepted()
-            ->assertJsonPath('data.status', 'running')
-            ->assertJsonPath('data.step', 'installing');
-        $this->assertSame('old service', file_get_contents($root.'/app/Services/Existing.php'));
-        $this->assertCount(1, $deferredTasks);
-
-        $deferredTasks[0]();
-
-        Http::assertSent(function (\Illuminate\Http\Client\Request $request) use ($trustedDownloadUrl): bool {
-            return $request->url() === $trustedDownloadUrl;
-        });
-        Http::assertSentCount(4);
-        $this->assertSame('new service', file_get_contents($root.'/app/Services/Existing.php'));
-        $this->assertDatabaseHas('system_update_runs', [
-            'actor_user_id' => $admin->id,
-            'tag' => 'v1.2.4',
-            'version' => '1.2.4',
-            'status' => 'completed',
-            'package_sha256' => hash_file('sha256', $trustedPackagePath),
-        ]);
-    }
-
-    public function test_install_uses_in_process_artisan_calls_instead_of_configured_php_binary(): void
-    {
-        Storage::fake();
-        $root = $this->fixtureDeploymentRoot('configured-php-binary');
-        $packagePath = $this->fixturePath('configured-php-binary-release.tar.gz');
-        $fakePhpLogPath = $this->fixturePath('configured-php-binary.log');
-        $fakePhpPath = $this->writeFakePhpBinary($fakePhpLogPath);
-
-        if (is_file($fakePhpLogPath)) {
-            unlink($fakePhpLogPath);
-        }
-
-        config()->set('system_update.php_binary', $fakePhpPath);
-
-        $this->writeDeploymentRoot($root, [
-            '.env' => 'APP_KEY=existing',
-            'storage/app/runtime.txt' => 'local runtime',
-            'public/storage/upload.txt' => 'linked upload',
-            'artisan' => "<?php fwrite(STDERR, 'real php binary should not be used'); exit(42);\n",
-            'release.json' => '{"version":"1.2.3"}',
-        ]);
-
-        $this->writeGzipTar($packagePath, [
-            '.env.example' => 'APP_KEY=',
-            'app/Services/Existing.php' => 'new service',
-            'bootstrap/app.php' => '<?php',
-            'config/app.php' => '<?php return [];',
-            'database/migrations/example.php' => '<?php',
-            'public/index.php' => 'new public index',
-            'resources/views/.gitkeep' => '',
-            'routes/api.php' => '<?php',
-            'vendor/autoload.php' => '<?php',
-            'artisan' => '<?php',
-            'composer.lock' => '{}',
-            'release.json' => '{"version":"1.2.4","tag":"v1.2.4"}',
-        ]);
-
-        Http::fake([
-            'api.github.com/repos/*/releases/latest' => Http::response([
-                'tag_name' => 'v1.2.4',
-                'draft' => false,
-                'prerelease' => false,
-                'assets' => [
-                    ['name' => 'release-manifest.json', 'browser_download_url' => 'https://example.test/release-manifest.json'],
-                    ['name' => 'gx-om-backend-v1.2.4.tar.gz', 'browser_download_url' => 'https://example.test/gx-om-backend-v1.2.4.tar.gz'],
-                    ['name' => 'gx-om-backend-v1.2.4.tar.gz.sha256', 'browser_download_url' => 'https://example.test/pkg.tar.gz.sha256'],
-                ],
-            ]),
-            'example.test/release-manifest.json' => Http::response(json_encode([
-                'version' => '1.2.4',
-                'sha256' => hash_file('sha256', $packagePath),
-            ], JSON_THROW_ON_ERROR)),
-            'example.test/pkg.tar.gz.sha256' => Http::response(hash_file('sha256', $packagePath).'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
-            'example.test/gx-om-backend-v1.2.4.tar.gz' => Http::response(file_get_contents($packagePath)),
-        ]);
-
-        $this->bindInstallerForRootUsingRealCommands($root);
-        $this->actingAsAdmin();
-        $deferredTasks = [];
-        $this->captureDeferredTasks($deferredTasks);
-
-        Artisan::shouldReceive('call')->once()->with('down')->andReturn(0);
-        Artisan::shouldReceive('call')->once()->with('migrate --force')->andReturn(0);
-        Artisan::shouldReceive('call')->once()->with('optimize:clear')->andReturn(0);
-        Artisan::shouldReceive('call')->once()->with('storage:link --force')->andReturn(0);
-        Artisan::shouldReceive('call')->once()->with('up')->andReturn(0);
-
-        $this->postJson('/api/system-updates/install', [
-            'tag' => 'v1.2.4',
-            'sha256' => hash_file('sha256', $packagePath),
-            'confirmed' => true,
-        ])->assertAccepted()
-            ->assertJsonPath('data.status', 'running');
-
-        $this->assertCount(1, $deferredTasks);
-        $deferredTasks[0]();
-
-        $this->assertFileDoesNotExist($fakePhpLogPath);
-    }
-
-    public function test_failed_install_restores_backup_and_brings_application_up(): void
-    {
-        Storage::fake();
-        $root = $this->fixtureDeploymentRoot('rollback');
-        $packagePath = $this->fixturePath('rollback-release.tar.gz');
-        $commands = [];
-
-        $this->writeDeploymentRoot($root, [
-            '.env' => 'APP_KEY=existing',
-            'storage/app/runtime.txt' => 'local runtime',
-            'public/storage/upload.txt' => 'linked upload',
-            'app/Services/Existing.php' => 'old service',
-            'public/index.php' => 'old public index',
-            'release.json' => '{"version":"1.2.3"}',
-        ]);
-
-        $this->writeGzipTar($packagePath, [
-            '.env.example' => 'APP_KEY=',
-            'app/Services/Existing.php' => 'new service',
-            'bootstrap/app.php' => '<?php',
-            'config/app.php' => '<?php return [];',
-            'database/migrations/example.php' => '<?php',
-            'public/index.php' => 'new public index',
-            'resources/views/.gitkeep' => '',
-            'routes/api.php' => '<?php',
-            'vendor/autoload.php' => '<?php',
-            'artisan' => '#!/usr/bin/env php',
-            'composer.lock' => '{}',
-            'release.json' => '{"version":"1.2.4","tag":"v1.2.4"}',
-        ]);
-
-        Http::fake([
-            'api.github.com/repos/*/releases/latest' => Http::response([
-                'tag_name' => 'v1.2.4',
-                'draft' => false,
-                'prerelease' => false,
-                'assets' => [
-                    ['name' => 'release-manifest.json', 'browser_download_url' => 'https://example.test/release-manifest.json'],
-                    ['name' => 'gx-om-backend-v1.2.4.tar.gz', 'browser_download_url' => 'https://example.test/gx-om-backend-v1.2.4.tar.gz'],
-                    ['name' => 'gx-om-backend-v1.2.4.tar.gz.sha256', 'browser_download_url' => 'https://example.test/pkg.tar.gz.sha256'],
-                ],
-            ]),
-            'example.test/release-manifest.json' => Http::response(json_encode([
-                'version' => '1.2.4',
-                'sha256' => hash_file('sha256', $packagePath),
-            ], JSON_THROW_ON_ERROR)),
-            'example.test/pkg.tar.gz.sha256' => Http::response(hash_file('sha256', $packagePath).'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
-            'example.test/gx-om-backend-v1.2.4.tar.gz' => Http::response(file_get_contents($packagePath)),
-        ]);
-
-        $this->bindInstallerForRoot($root, function (string $command) use (&$commands): void {
-            $commands[] = $command;
-
-            if ($command === 'migrate --force') {
-                throw new RuntimeException('Migration failed.');
-            }
-        });
-        $admin = $this->actingAsAdmin();
-        $deferredTasks = [];
-        $this->captureDeferredTasks($deferredTasks);
-
-        $response = $this->postJson('/api/system-updates/install', [
-            'tag' => 'v1.2.4',
-            'sha256' => hash_file('sha256', $packagePath),
-            'confirmed' => true,
-        ]);
-
-        $response->assertAccepted()
-            ->assertJsonPath('data.status', 'running')
-            ->assertJsonPath('data.step', 'installing');
-        $this->assertCount(1, $deferredTasks);
-
-        $deferredTasks[0]();
-
-        $this->assertSame('old service', file_get_contents($root.'/app/Services/Existing.php'));
-        $this->assertSame('old public index', file_get_contents($root.'/public/index.php'));
-        $this->assertSame('local runtime', file_get_contents($root.'/storage/app/runtime.txt'));
-        $this->assertSame('linked upload', file_get_contents($root.'/public/storage/upload.txt'));
-        $this->assertSame(['down', 'migrate --force', 'up'], $commands);
-        $this->assertDatabaseHas('system_update_runs', [
-            'actor_user_id' => $admin->id,
-            'tag' => 'v1.2.4',
-            'version' => '1.2.4',
-            'status' => 'failed',
-            'package_sha256' => hash_file('sha256', $packagePath),
-        ]);
+        $this->assertSame('failed', $run->status);
+        $this->assertSame('failed', $run->step);
+        $this->assertSame('System update worker stopped before completing this run.', $run->error_message);
+        $this->assertNotNull($run->finished_at);
     }
 
     private function bindInstallerForRoot(string $root, ?callable $commandRunner = null): void
@@ -737,32 +270,6 @@ class SystemUpdateInstallTest extends TestCase
             $root,
             $commandRunner ?? fn (string $command): null => null,
         ));
-    }
-
-    private function bindInstallerForRootUsingRealCommands(string $root): void
-    {
-        $this->app->bind(InPlaceReleaseInstaller::class, fn ($app): InPlaceReleaseInstaller => new InPlaceReleaseInstaller(
-            $app->make(ReleasePackageVerifier::class),
-            $root,
-        ));
-    }
-
-    /**
-     * @param  list<callable>  $deferredTasks
-     */
-    private function captureDeferredTasks(array &$deferredTasks): void
-    {
-        $deferredTasks = [];
-
-        $this->mock(SystemUpdateDeferredRunner::class, function ($mock) use (&$deferredTasks): void {
-            $mock->shouldReceive('afterResponse')
-                ->once()
-                ->with(Mockery::on(function (callable $task) use (&$deferredTasks): bool {
-                    $deferredTasks[] = $task;
-
-                    return true;
-                }));
-        });
     }
 
     private function actingAsAdmin(): User
@@ -778,6 +285,20 @@ class SystemUpdateInstallTest extends TestCase
         Sanctum::actingAs($admin);
 
         return $admin;
+    }
+
+    private function createQueuedRun(string $packagePath, string $sha256): SystemUpdateRun
+    {
+        return SystemUpdateRun::query()->create([
+            'tag' => 'v1.2.4',
+            'version' => '1.2.4',
+            'status' => 'queued',
+            'step' => 'queued',
+            'metadata' => ['source' => 'upload', 'package_name' => 'gx-om-backend-v1.2.4.tar.gz'],
+            'log_lines' => ['Uploaded release package.', 'Queued for CLI system update worker.'],
+            'package_path' => $packagePath,
+            'package_sha256' => $sha256,
+        ]);
     }
 
     private function fixtureDeploymentRoot(string $name): string
@@ -804,22 +325,6 @@ class SystemUpdateInstallTest extends TestCase
         return $directory.DIRECTORY_SEPARATOR.$name;
     }
 
-    private function writeFakePhpBinary(string $logPath): string
-    {
-        $path = $this->fixturePath('fake-php'.(DIRECTORY_SEPARATOR === '\\' ? '.bat' : ''));
-
-        if (DIRECTORY_SEPARATOR === '\\') {
-            file_put_contents($path, "@echo off\r\necho %*>>\"{$logPath}\"\r\nexit /b 0\r\n");
-
-            return $path;
-        }
-
-        file_put_contents($path, "#!/usr/bin/env sh\nprintf '%s\n' \"$*\" >> ".escapeshellarg($logPath)."\nexit 0\n");
-        chmod($path, 0755);
-
-        return $path;
-    }
-
     /**
      * @param  array<string, string>  $files
      */
@@ -835,23 +340,6 @@ class SystemUpdateInstallTest extends TestCase
 
             file_put_contents($path, $contents);
         }
-    }
-
-    /**
-     * @param  array<string, string>  $entries
-     */
-    private function writeGzipTar(string $path, array $entries): void
-    {
-        $tar = '';
-
-        foreach ($entries as $name => $contents) {
-            $tar .= $this->tarHeader($name, strlen($contents));
-            $tar .= $contents.str_repeat("\0", (512 - strlen($contents) % 512) % 512);
-        }
-
-        $tar .= str_repeat("\0", 1024);
-
-        file_put_contents($path, gzencode($tar));
     }
 
     private function writeValidReleasePackage(string $path): string
@@ -872,6 +360,23 @@ class SystemUpdateInstallTest extends TestCase
         ]);
 
         return hash_file('sha256', $path);
+    }
+
+    /**
+     * @param  array<string, string>  $entries
+     */
+    private function writeGzipTar(string $path, array $entries): void
+    {
+        $tar = '';
+
+        foreach ($entries as $name => $contents) {
+            $tar .= $this->tarHeader($name, strlen($contents));
+            $tar .= $contents.str_repeat("\0", (512 - strlen($contents) % 512) % 512);
+        }
+
+        $tar .= str_repeat("\0", 1024);
+
+        file_put_contents($path, gzencode($tar));
     }
 
     private function tarHeader(string $name, int $size): string

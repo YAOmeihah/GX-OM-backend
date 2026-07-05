@@ -96,7 +96,9 @@ class GitHubReleaseClientTest extends TestCase
         $release = (new GitHubReleaseClient)->latestRelease();
 
         $this->assertSame('v1.2.4', $release['tag']);
-        $this->assertSame('https://api.github.com/repos/acme/app/releases/assets/2', $release['package']['download_url']);
+        $this->assertSame('gx-om-backend-v1.2.4.tar.gz', $release['package']['name']);
+        $this->assertSame(str_repeat('a', 64), $release['package']['sha256']);
+        $this->assertArrayNotHasKey('download_url', $release['package']);
         Http::assertSent(
             fn (Request $request): bool => $request->url() === 'https://api.github.com/repos/acme/app/releases/assets/1'
                 && $request->hasHeader('Authorization', 'Bearer github-token-for-tests')
@@ -107,6 +109,9 @@ class GitHubReleaseClientTest extends TestCase
             fn (Request $request): bool => $request->url() === 'https://api.github.com/repos/acme/app/releases/assets/3'
                 && $request->hasHeader('Authorization', 'Bearer github-token-for-tests')
                 && $request->hasHeader('Accept', 'application/octet-stream')
+        );
+        Http::assertNotSent(
+            fn (Request $request): bool => $request->url() === 'https://api.github.com/repos/acme/app/releases/assets/2'
         );
     }
 

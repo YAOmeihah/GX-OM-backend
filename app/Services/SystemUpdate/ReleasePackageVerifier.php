@@ -82,68 +82,146 @@ class ReleasePackageVerifier
             throw new UnexpectedValueException('Release archive does not exist.');
         }
 
-        $entries = $this->readTarGzEntries($archivePath);
+        $requiredEntries = array_fill_keys(self::REQUIRED_ENTRIES, false);
+        $entryCount = 0;
 
-        foreach ($entries as $entry) {
+        foreach ($this->readTarGzEntries($archivePath) as $entry) {
+            $entryCount++;
             $this->assertSafeEntryType($entry);
             $this->assertSafeEntryPath($entry['name']);
             $this->assertNotBlockedEntry($entry['name']);
+
+            foreach (self::REQUIRED_ENTRIES as $requiredEntry) {
+                if (! $requiredEntries[$requiredEntry] && $this->entryMatchesRequired($entry['name'], $requiredEntry)) {
+                    $requiredEntries[$requiredEntry] = true;
+                }
+            }
         }
 
-        foreach (self::REQUIRED_ENTRIES as $requiredEntry) {
-            if (! $this->hasEntry($entries, $requiredEntry)) {
+        if ($entryCount === 0) {
+            throw new UnexpectedValueException('Release archive has no entries.');
+        }
+
+        foreach ($requiredEntries as $requiredEntry => $found) {
+            if (! $found) {
                 throw new UnexpectedValueException("Release archive is missing required entry: {$requiredEntry}");
             }
         }
     }
 
     /**
-     * @return list<array{name: string, type: string}>
+     * @return \Generator<int, array{name: string, type: string}>
      */
-    private function readTarGzEntries(string $archivePath): array
+    private function readTarGzEntries(string $archivePath): iterable
     {
-        $contents = gzdecode((string) file_get_contents($archivePath));
+        $handle = @gzopen($archivePath, 'rb');
 
-        if ($contents === false) {
+        if ($handle === false) {
             throw new UnexpectedValueException('Release archive is not a valid gzip file.');
         }
 
-        $entries = [];
-        $offset = 0;
-        $length = strlen($contents);
+        try {
+            while (true) {
+                $header = $this->readGzipBytes($handle, 512);
 
-        while ($offset + 512 <= $length) {
-            $header = substr($contents, $offset, 512);
-            $offset += 512;
+                if ($header === null) {
+                    break;
+                }
 
-            if ($header === str_repeat("\0", 512)) {
+                if (strlen($header) !== 512) {
+                    throw new UnexpectedValueException('Release archive has a truncated tar header.');
+                }
+
+                if ($header === str_repeat("\0", 512)) {
+                    break;
+                }
+
+                $name = rtrim(substr($header, 0, 100), "\0");
+                $prefix = rtrim(substr($header, 345, 155), "\0");
+                $type = substr($header, 156, 1);
+                $size = $this->parseTarSize($header);
+
+                if ($prefix !== '') {
+                    $name = "{$prefix}/{$name}";
+                }
+
+                if ($name !== '') {
+                    yield [
+                        'name' => str_replace('\\', '/', $name),
+                        'type' => $type,
+                    ];
+                }
+
+                $this->skipGzipBytes($handle, (int) (ceil($size / 512) * 512));
+            }
+        } finally {
+            gzclose($handle);
+        }
+    }
+
+    /**
+     * @param  resource  $handle
+     */
+    private function readGzipBytes($handle, int $length): ?string
+    {
+        $buffer = '';
+
+        while (strlen($buffer) < $length && ! gzeof($handle)) {
+            $chunk = @gzread($handle, $length - strlen($buffer));
+
+            if ($chunk === false) {
+                throw new UnexpectedValueException('Release archive is not a valid gzip file.');
+            }
+
+            if ($chunk === '') {
                 break;
             }
 
-            $name = rtrim(substr($header, 0, 100), "\0");
-            $prefix = rtrim(substr($header, 345, 155), "\0");
-            $type = substr($header, 156, 1);
-            $size = octdec(trim(rtrim(substr($header, 124, 12), "\0 ")) ?: '0');
-
-            if ($prefix !== '') {
-                $name = "{$prefix}/{$name}";
-            }
-
-            if ($name !== '') {
-                $entries[] = [
-                    'name' => str_replace('\\', '/', $name),
-                    'type' => $type,
-                ];
-            }
-
-            $offset += (int) (ceil($size / 512) * 512);
+            $buffer .= $chunk;
         }
 
-        if ($entries === []) {
-            throw new UnexpectedValueException('Release archive has no entries.');
+        if ($buffer === '' && gzeof($handle)) {
+            return null;
         }
 
-        return $entries;
+        return $buffer;
+    }
+
+    private function parseTarSize(string $header): int
+    {
+        $rawSize = trim(rtrim(substr($header, 124, 12), "\0 "));
+
+        if ($rawSize === '') {
+            return 0;
+        }
+
+        if (preg_match('/^[0-7]+$/', $rawSize) !== 1) {
+            throw new UnexpectedValueException('Release archive contains an invalid tar size header.');
+        }
+
+        return octdec($rawSize);
+    }
+
+    /**
+     * @param  resource  $handle
+     */
+    private function skipGzipBytes($handle, int $length): void
+    {
+        $remaining = $length;
+
+        while ($remaining > 0) {
+            $chunk = @gzread($handle, min($remaining, 8192));
+
+            if ($chunk === false) {
+                throw new UnexpectedValueException('Release archive is not a valid gzip file.');
+            }
+
+            if ($chunk === '') {
+                throw new UnexpectedValueException('Release archive ended before a tar entry was complete.');
+            }
+
+            $remaining -= strlen($chunk);
+        }
     }
 
     /**
@@ -184,30 +262,15 @@ class ReleasePackageVerifier
         }
     }
 
-    /**
-     * @param  list<array{name: string, type: string}>  $entries
-     */
-    private function hasEntry(array $entries, string $requiredEntry): bool
+    private function entryMatchesRequired(string $entryName, string $requiredEntry): bool
     {
         $isDirectory = str_ends_with($requiredEntry, '/');
         $requiredFile = rtrim($requiredEntry, '/');
 
-        foreach ($entries as $entry) {
-            $entryName = $entry['name'];
-
-            if ($isDirectory) {
-                if ($entryName === $requiredFile || str_starts_with($entryName, $requiredEntry)) {
-                    return true;
-                }
-
-                continue;
-            }
-
-            if ($entryName === $requiredFile) {
-                return true;
-            }
+        if ($isDirectory) {
+            return $entryName === $requiredFile || str_starts_with($entryName, $requiredEntry);
         }
 
-        return false;
+        return $entryName === $requiredFile;
     }
 }

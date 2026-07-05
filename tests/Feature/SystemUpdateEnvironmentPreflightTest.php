@@ -66,20 +66,28 @@ class SystemUpdateEnvironmentPreflightTest extends TestCase
             ->assertJsonPath('data.checks.7.detail', 'public/storage 已连接到 storage/app/public。');
     }
 
-    public function test_install_is_refused_when_the_environment_preflight_fails(): void
+    public function test_upload_is_refused_when_the_environment_preflight_fails(): void
     {
         $root = $this->prepareDeploymentRoot('preflight-fail', false);
         config()->set('system_update.deployment_root', $root);
+        $packagePath = $root.'/gx-om-backend-v1.2.4.tar.gz';
+        file_put_contents($packagePath, 'package');
 
         $this->actingAsAdminWithPermission();
 
         Http::fake();
 
-        $this->postJson('/api/system-updates/install', [
+        $this->post('/api/system-updates/uploads', [
             'tag' => 'v1.2.4',
-            'sha256' => str_repeat('a', 64),
-            'confirmed' => true,
-        ])
+            'sha256' => hash_file('sha256', $packagePath),
+            'package' => new \Illuminate\Http\UploadedFile(
+                $packagePath,
+                'gx-om-backend-v1.2.4.tar.gz',
+                'application/gzip',
+                null,
+                true
+            ),
+        ], ['Accept' => 'application/json'])
             ->assertStatus(412)
             ->assertJsonPath('success', false)
             ->assertJsonPath('data.preflight.passed', false)
@@ -100,7 +108,7 @@ class SystemUpdateEnvironmentPreflightTest extends TestCase
         ], [
             'name' => '系统更新',
             'module' => 'system',
-            'description' => '检查、下载、安装和回滚系统更新',
+            'description' => '检查、上传、排队和回滚系统更新',
         ]);
 
         $adminRole->permissions()->syncWithoutDetaching([$permission->id]);
