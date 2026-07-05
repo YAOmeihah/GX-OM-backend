@@ -23,7 +23,7 @@ class SystemUpdateReleaseCheckTest extends TestCase
             'api.github.com/repos/*/releases/latest' => Http::response([
                 'tag_name' => 'v1.2.4',
                 'name' => 'GX-OM Backend v1.2.4',
-                'body' => "## 更新内容\n\n- 修复系统更新 worker",
+                'body' => "## 更新内容\n\n- 仅保留版本检查",
                 'html_url' => 'https://github.com/YAOmeihah/GX-OM-backend/releases/tag/v1.2.4',
                 'published_at' => '2026-07-05T10:30:00Z',
                 'draft' => false,
@@ -58,21 +58,12 @@ class SystemUpdateReleaseCheckTest extends TestCase
             $response->assertJsonPath('data.current.version', '1.2.3');
             $response->assertJsonPath('data.latest.tag', 'v1.2.4');
             $response->assertJsonPath('data.latest.release_name', 'GX-OM Backend v1.2.4');
-            $response->assertJsonPath('data.latest.body', "## 更新内容\n\n- 修复系统更新 worker");
+            $response->assertJsonPath('data.latest.body', "## 更新内容\n\n- 仅保留版本检查");
             $response->assertJsonPath('data.latest.html_url', 'https://github.com/YAOmeihah/GX-OM-backend/releases/tag/v1.2.4');
             $response->assertJsonPath('data.latest.package.name', 'gx-om-backend-v1.2.4.tar.gz');
             $response->assertJsonPath('data.latest.package.size', 123_456);
             $response->assertJsonPath('data.latest.package.sha256', str_repeat('c', 64));
-            $response->assertJsonPath('data.latest.script_install_command', function (string $command): bool {
-                return str_contains($command, 'SYSTEM_UPDATE_GITHUB_TOKEN')
-                    && str_contains($command, 'https://api.github.com/repos/YAOmeihah/GX-OM-backend/contents/scripts/update-backend.sh?ref=v1.2.4')
-                    && str_contains($command, 'application/vnd.github.raw+json')
-                    && str_contains($command, 'grep -E')
-                    && str_contains($command, '| bash -s -- --tag v1.2.4');
-            });
-            $response->assertJsonPath('data.latest.script_install_command', function (string $command): bool {
-                return ! str_contains($command, '/www/server/php/82/bin/php');
-            });
+            $response->assertJsonMissingPath('data.latest.script_install_command');
             $response->assertJsonMissingPath('data.latest.package.download_url');
             $response->assertJsonPath('data.has_update', true);
 

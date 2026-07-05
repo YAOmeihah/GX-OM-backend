@@ -3,10 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\Role;
-use App\Models\SystemUpdateRun;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -17,52 +15,30 @@ class SystemUpdateApiTest extends TestCase
     public function test_system_update_routes_require_manage_permission(): void
     {
         $this->actingAs($this->storeStaff());
-        $run = SystemUpdateRun::query()->create([
-            'tag' => 'v1.2.4',
-            'version' => '1.2.4',
-            'status' => 'uploaded',
-            'step' => 'uploaded',
-        ]);
 
         $this->getJson('/api/system-updates/current')->assertForbidden();
         $this->getJson('/api/system-updates/check')->assertForbidden();
-        $this->getJson('/api/system-updates/preflight')->assertForbidden();
-        $this->postJson('/api/system-updates/install', [
-            'tag' => 'v1.2.4',
-            'sha256' => str_repeat('a', 64),
-            'confirmed' => true,
-        ])->assertForbidden();
-        $this->postJson('/api/system-updates/uploads', [
-            'tag' => 'v1.2.4',
-            'sha256' => str_repeat('a', 64),
-        ])->assertForbidden();
-        $this->getJson('/api/system-updates/runs')->assertForbidden();
-        $this->postJson("/api/system-updates/runs/{$run->id}/queue")->assertForbidden();
-        $this->postJson('/api/system-updates/rollback', [
-            'run_id' => 1,
-        ])->assertForbidden();
     }
 
-    public function test_system_update_routes_return_expected_payloads(): void
+    public function test_removed_system_update_execution_routes_return_not_found(): void
     {
-        $admin = $this->actingAsAdminWithPermission();
+        $this->actingAsAdminWithPermission();
+
+        $this->getJson('/api/system-updates/preflight')->assertNotFound();
+        $this->postJson('/api/system-updates/install')->assertNotFound();
+        $this->postJson('/api/system-updates/uploads')->assertNotFound();
+        $this->getJson('/api/system-updates/runs')->assertNotFound();
+        $this->getJson('/api/system-updates/runs/1')->assertNotFound();
+        $this->postJson('/api/system-updates/runs/1/queue')->assertNotFound();
+        $this->postJson('/api/system-updates/runs/1/install')->assertNotFound();
+        $this->postJson('/api/system-updates/rollback')->assertNotFound();
+    }
+
+    public function test_system_update_check_routes_return_expected_payloads(): void
+    {
+        $this->actingAsAdminWithPermission();
         $releaseJsonPath = base_path('release.json');
         $originalReleaseJson = is_file($releaseJsonPath) ? file_get_contents($releaseJsonPath) : null;
-
-        $run = SystemUpdateRun::query()->create([
-            'actor_user_id' => $admin->id,
-            'tag' => 'v1.2.4',
-            'version' => '1.2.4',
-            'status' => 'completed',
-            'step' => 'completed',
-            'metadata' => ['source' => 'upload', 'package_name' => 'gx-om-backend-v1.2.4.tar.gz'],
-            'log_lines' => ['Started system update install.', 'System update install completed.'],
-            'backup_path' => '/tmp/backups/v1.2.4',
-            'package_path' => '/tmp/downloads/gx-om-backend-v1.2.4.tar.gz',
-            'package_sha256' => str_repeat('b', 64),
-            'started_at' => Carbon::parse('2026-05-23 10:00:00'),
-            'finished_at' => Carbon::parse('2026-05-23 10:05:00'),
-        ]);
 
         try {
             file_put_contents($releaseJsonPath, json_encode([
@@ -93,13 +69,6 @@ class SystemUpdateApiTest extends TestCase
                 'example.test/gx-om-backend-v1.2.4.tar.gz.sha256' => \Illuminate\Support\Facades\Http::response(str_repeat('c', 64).'  gx-om-backend-v1.2.4.tar.gz'.PHP_EOL),
             ]);
 
-            $this->mock(\App\Services\SystemUpdate\InPlaceReleaseInstaller::class, function ($mock) use ($run): void {
-                $mock->shouldReceive('rollback')
-                    ->once()
-                    ->with($run->backup_path)
-                    ->andReturn(['backup_path' => $run->backup_path]);
-            });
-
             $this->getJson('/api/system-updates/current')
                 ->assertOk()
                 ->assertJsonPath('data.version', '1.2.3');
@@ -109,26 +78,8 @@ class SystemUpdateApiTest extends TestCase
                 ->assertJsonPath('data.latest.tag', 'v1.2.4')
                 ->assertJsonPath('data.latest.html_url', 'https://github.com/YAOmeihah/GX-OM-backend/releases/tag/v1.2.4')
                 ->assertJsonMissingPath('data.latest.package.download_url')
+                ->assertJsonMissingPath('data.latest.script_install_command')
                 ->assertJsonPath('data.has_update', true);
-
-            $this->getJson('/api/system-updates/preflight')
-                ->assertOk()
-                ->assertJsonPath('data.passed', true)
-                ->assertJsonPath('data.checks.0.id', 'workspace_writable');
-
-            $this->getJson('/api/system-updates/runs')
-                ->assertOk()
-                ->assertJsonCount(1, 'data')
-                ->assertJsonPath('data.0.id', $run->id);
-
-            $this->getJson('/api/system-updates/runs/'.$run->id)
-                ->assertOk()
-                ->assertJsonPath('data.tag', 'v1.2.4');
-
-            $this->postJson('/api/system-updates/rollback', ['run_id' => $run->id])
-                ->assertOk()
-                ->assertJsonPath('data.run_id', $run->id)
-                ->assertJsonPath('data.status', 'rolled_back');
         } finally {
             if ($originalReleaseJson === null) {
                 @unlink($releaseJsonPath);
@@ -212,7 +163,7 @@ class SystemUpdateApiTest extends TestCase
         ], [
             'name' => '系统更新',
             'module' => 'system',
-            'description' => '检查、上传、排队和回滚系统更新',
+            'description' => '检查系统当前版本和 GitHub 最新版本',
         ]);
 
         $adminRole->permissions()->syncWithoutDetaching([$permission->id]);

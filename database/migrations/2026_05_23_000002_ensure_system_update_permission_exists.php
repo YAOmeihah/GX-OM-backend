@@ -15,7 +15,7 @@ return new class extends Migration
         $permission = [
             'name' => '系统更新',
             'module' => 'system',
-            'description' => '检查、上传并通过服务器脚本安装系统更新',
+            'description' => '检查系统当前版本和 GitHub 最新版本',
             'updated_at' => now(),
         ];
 

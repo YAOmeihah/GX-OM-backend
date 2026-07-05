@@ -25,7 +25,6 @@ $requiredEntries = [
     'public/build/',
     'resources/',
     'routes/',
-    'scripts/update-backend.sh',
     'vendor/',
     'artisan',
     'composer.lock',
