@@ -63,6 +63,12 @@ class SystemUpdateReleaseCheckTest extends TestCase
             $response->assertJsonPath('data.latest.package.name', 'gx-om-backend-v1.2.4.tar.gz');
             $response->assertJsonPath('data.latest.package.size', 123_456);
             $response->assertJsonPath('data.latest.package.sha256', str_repeat('c', 64));
+            $response->assertJsonPath('data.latest.script_install_command', function (string $command): bool {
+                return str_contains($command, 'SYSTEM_UPDATE_GITHUB_TOKEN')
+                    && str_contains($command, 'https://api.github.com/repos/YAOmeihah/GX-OM-backend/contents/scripts/update-backend.sh?ref=v1.2.4')
+                    && str_contains($command, 'application/vnd.github.raw+json')
+                    && str_contains($command, '| bash -s -- --tag v1.2.4');
+            });
             $response->assertJsonMissingPath('data.latest.package.download_url');
             $response->assertJsonPath('data.has_update', true);
 

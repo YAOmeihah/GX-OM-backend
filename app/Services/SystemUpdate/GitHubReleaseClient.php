@@ -39,6 +39,10 @@ class GitHubReleaseClient
         }
 
         $tag = (string) ($release['tag_name'] ?? '');
+        if (preg_match('/^v\d+\.\d+\.\d+$/', $tag) !== 1) {
+            throw new RuntimeException('Latest GitHub release tag must look like vX.Y.Z.');
+        }
+
         $packageName = "gx-om-backend-{$tag}.tar.gz";
         $assets = collect($release['assets'] ?? []);
 
@@ -70,6 +74,7 @@ class GitHubReleaseClient
                 'size' => $packageAsset['size'] ?? null,
                 'sha256' => $manifestSha256,
             ],
+            'script_install_command' => $this->remoteScriptInstallCommand($tag),
             'checksum' => [
                 'name' => $checksumAsset['name'],
                 'sha256' => $checksumSha256,
@@ -186,5 +191,38 @@ class GitHubReleaseClient
         }
 
         return $sha256;
+    }
+
+    private function remoteScriptInstallCommand(string $tag): string
+    {
+        $owner = (string) config('system_update.github.owner');
+        $repo = (string) config('system_update.github.repo');
+        $root = rtrim((string) config('system_update.deployment_root', base_path()), DIRECTORY_SEPARATOR.'/\\');
+        $phpBinary = (string) (config('system_update.php_binary') ?: '/www/server/php/82/bin/php');
+        $scriptUrl = sprintf(
+            'https://api.github.com/repos/%s/%s/contents/scripts/update-backend.sh?ref=%s',
+            rawurlencode($owner),
+            rawurlencode($repo),
+            rawurlencode($tag),
+        );
+        $tokenReader = '$env=parse_ini_file(".env", false, INI_SCANNER_RAW) ?: []; '
+            .'echo $env["GITHUB_RELEASE_TOKEN"] ?? $env["SYSTEM_UPDATE_GITHUB_TOKEN"] ?? $env["GITHUB_TOKEN"] ?? "";';
+
+        return implode(PHP_EOL, [
+            'cd '.$this->shellQuote($root),
+            'TOKEN="$('.$this->shellQuote($phpBinary).' -r '.$this->shellQuote($tokenReader).')"',
+            'test -n "$TOKEN" || { echo "Missing GITHUB_RELEASE_TOKEN, SYSTEM_UPDATE_GITHUB_TOKEN, or GITHUB_TOKEN in .env"; exit 1; }',
+            'curl -fsSL \\',
+            '  -H "Authorization: Bearer $TOKEN" \\',
+            '  -H "Accept: application/vnd.github.raw+json" \\',
+            '  -H "X-GitHub-Api-Version: 2022-11-28" \\',
+            '  '.$this->shellQuote($scriptUrl).' \\',
+            '  | bash -s -- --tag '.$tag,
+        ]);
+    }
+
+    private function shellQuote(string $value): string
+    {
+        return "'".str_replace("'", "'\"'\"'", $value)."'";
     }
 }

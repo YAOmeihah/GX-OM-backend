@@ -25,6 +25,13 @@ class SystemUpdateManualScriptTest extends TestCase
         $this->assertStringContainsString('artisan optimize:clear', $script);
         $this->assertStringContainsString('artisan storage:link --force', $script);
         $this->assertStringContainsString('artisan up', $script);
-        $this->assertStringNotContainsString('GITHUB_TOKEN', $script);
+        $this->assertStringContainsString('--tag', $script);
+        $this->assertStringContainsString('GITHUB_RELEASE_TOKEN', $script);
+        $this->assertStringContainsString('SYSTEM_UPDATE_GITHUB_TOKEN', $script);
+        $this->assertStringContainsString('GITHUB_RELEASE_OWNER', $script);
+        $this->assertStringContainsString('GITHUB_RELEASE_REPO', $script);
+        $this->assertStringContainsString('/releases/tags/', $script);
+        $this->assertStringContainsString('/releases/assets/', $script);
+        $this->assertStringContainsString('application/octet-stream', $script);
     }
 }
