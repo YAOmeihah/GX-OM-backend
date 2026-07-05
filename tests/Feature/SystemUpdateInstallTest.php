@@ -178,6 +178,37 @@ class SystemUpdateInstallTest extends TestCase
         $this->assertContains('Uploaded release package install completed.', $run->log_lines);
     }
 
+    public function test_worker_preserves_public_user_ini_during_public_replacement(): void
+    {
+        $root = $this->fixtureDeploymentRoot('worker-preserves-user-ini');
+        $packagePath = $this->fixturePath('worker-preserves-user-ini.tar.gz');
+        $sha256 = $this->writeValidReleasePackage($packagePath);
+        $userIni = 'open_basedir=/www/wwwroot/api-gx-om.hrlni.cn/:/tmp/';
+
+        $this->writeDeploymentRoot($root, [
+            '.env' => 'APP_KEY=existing',
+            'storage/app/runtime.txt' => 'local runtime',
+            'public/storage/upload.txt' => 'linked upload',
+            'public/.user.ini' => $userIni,
+            'public/index.php' => 'old public index',
+            'app/Services/Existing.php' => 'old service',
+            'release.json' => '{"version":"1.2.3"}',
+        ]);
+
+        $this->bindInstallerForRoot($root);
+        $run = $this->createQueuedRun($packagePath, $sha256);
+
+        $exitCode = Artisan::call('system-update:worker', ['--once' => true]);
+
+        $this->assertSame(0, $exitCode, Artisan::output());
+        $this->assertSame($userIni, file_get_contents($root.'/public/.user.ini'));
+        $this->assertSame('linked upload', file_get_contents($root.'/public/storage/upload.txt'));
+
+        $run->refresh();
+        $this->assertSame('completed', $run->status);
+        $this->assertSame('completed', $run->step);
+    }
+
     public function test_worker_lock_prevents_concurrent_installation(): void
     {
         $packagePath = $this->fixturePath('locked-worker.tar.gz');
@@ -232,6 +263,38 @@ class SystemUpdateInstallTest extends TestCase
         $this->assertSame('Migration failed.', $run->error_message);
         $this->assertNotNull($run->finished_at);
         $this->assertContains('Install failed; restoring backup.', $run->log_lines);
+    }
+
+    public function test_worker_attempts_to_bring_application_up_when_rollback_restore_fails(): void
+    {
+        $root = $this->fixtureDeploymentRoot('worker-rollback-restore-failure');
+        $packagePath = $this->fixturePath('worker-rollback-restore-failure.tar.gz');
+        $sha256 = $this->writeValidReleasePackage($packagePath);
+        $commands = [];
+
+        $this->writeDeploymentRoot($root, [
+            '.env' => 'APP_KEY=existing',
+            'storage/app/runtime.txt' => 'local runtime',
+            'public' => 'not a directory',
+            'release.json' => '{"version":"1.2.3"}',
+        ]);
+
+        $this->bindInstallerForRoot($root, function (string $command) use (&$commands): void {
+            $commands[] = $command;
+        });
+
+        $run = $this->createQueuedRun($packagePath, $sha256);
+
+        $exitCode = Artisan::call('system-update:worker', ['--once' => true]);
+
+        $this->assertSame(1, $exitCode, Artisan::output());
+        $this->assertContains('down', $commands);
+        $this->assertContains('up', $commands);
+
+        $run->refresh();
+        $this->assertSame('failed', $run->status);
+        $this->assertSame('rolled_back', $run->step);
+        $this->assertNotNull($run->finished_at);
     }
 
     public function test_worker_marks_stale_running_run_failed_before_claiming_work(): void

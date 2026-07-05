@@ -28,6 +28,12 @@ class InPlaceReleaseInstaller
         '.env',
         'storage',
         'public/storage',
+        'public/.user.ini',
+    ];
+
+    private const PRESERVED_PUBLIC_ENTRIES = [
+        'storage',
+        '.user.ini',
     ];
 
     private Filesystem $files;
@@ -139,8 +145,23 @@ class InPlaceReleaseInstaller
             $this->pruneBackups($workspace['backups']);
         } catch (Throwable $throwable) {
             $this->reportProgress($progressReporter, 'rolling_back', 'Install failed; restoring backup.');
-            $this->restoreBackup($root, $backupPath);
+            $rollbackFailure = null;
+
+            try {
+                $this->restoreBackup($root, $backupPath);
+            } catch (Throwable $rollbackThrowable) {
+                $rollbackFailure = $rollbackThrowable;
+            }
+
             $this->tryBringApplicationUp($root);
+
+            if ($rollbackFailure !== null) {
+                throw new RuntimeException(
+                    $throwable->getMessage().'; rollback restore failed: '.$rollbackFailure->getMessage(),
+                    0,
+                    $throwable
+                );
+            }
 
             throw $throwable;
         } finally {
@@ -200,7 +221,7 @@ class InPlaceReleaseInstaller
             }
 
             if ($entry === 'public') {
-                $this->copyDirectoryContents($source, $this->join($backupPath, $entry), ['storage']);
+                $this->copyDirectoryContents($source, $this->join($backupPath, $entry), self::PRESERVED_PUBLIC_ENTRIES);
 
                 continue;
             }
@@ -220,7 +241,7 @@ class InPlaceReleaseInstaller
             $source = $this->join($stagingPath, $entry);
 
             if ($entry === 'public') {
-                $this->replaceDirectoryContents($source, $target, ['storage']);
+                $this->replaceDirectoryContents($source, $target, self::PRESERVED_PUBLIC_ENTRIES);
 
                 continue;
             }
@@ -250,7 +271,7 @@ class InPlaceReleaseInstaller
             $source = $this->join($backupPath, $entry);
 
             if ($entry === 'public') {
-                $this->replaceDirectoryContents($source, $target, ['storage']);
+                $this->replaceDirectoryContents($source, $target, self::PRESERVED_PUBLIC_ENTRIES);
 
                 continue;
             }
